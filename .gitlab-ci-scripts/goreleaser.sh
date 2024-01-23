@@ -7,6 +7,7 @@ docker images | grep goreleaser
 docker pull goreleaser/goreleaser
 # run goreleaser to build packages
 echo "PWD: $PWD"
+tree -a
 echo "docker run --rm --privileged \
   -v \"$PWD\":\"$BASEDIR\" \
   -w \"$BASEDIR\" \
