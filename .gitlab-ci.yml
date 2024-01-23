@@ -88,7 +88,6 @@ prerelease:
   script:
     - apk add git
     - .gitlab-ci-scripts/set-prerel-version.sh
-    - echo "PWD: $PWD"
     - .gitlab-ci-scripts/goreleaser.sh && .gitlab-ci-scripts/upload.sh
   # after_script:
   #   - docker run --rm curlimages/curl -d "repo=github.com/lbrocke/oinit" https://goreportcard.com/checks
