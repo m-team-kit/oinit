@@ -129,6 +129,8 @@ prerelease:
 
 .run-integration: &run-integration
   - |
+    echo "mytoken: "
+    echo $MYTOKEN | sed s/[a-z]/_/g | sed s/[0-9]/-/g
     echo "Getting access token..."
     export OIDC=`mytoken AT --MT $MYTOKEN || echo no-token-obtained`
 
