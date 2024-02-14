@@ -95,21 +95,21 @@ prerelease:
 .setup-repo-deb: &setup-repo-deb
   - |
     echo "Installing packages..."
-    apt update
-    apt install -y curl gpg python3-pip
+    apt-get update
+    apt-get install -y curl gpg python3-pip
     PIP_BREAK_SYSTEM_PACKAGES=1 pip3 install contextualise-ssh-server
 
     # release
     curl https://repo.data.kit.edu/repo-data-kit-edu-key.gpg | gpg --dearmor > /etc/apt/trusted.gpg.d/kitrepo-archive.gpg
     echo "deb [signed-by=/etc/apt/trusted.gpg.d/kitrepo-archive.gpg] https://repo.data.kit.edu/${DISTRO}/${RELEASE} ./" > /etc/apt/sources.list.d/kit-repo.list
-    apt update
-    apt install -y mytoken oidc-agent motley-cue
+    apt-get update
+    apt-get install -y mytoken oidc-agent motley-cue
 
     # prerel (overwrite release repo because no Suite name is set, therefore targeting repo with 'apt -t' not possible)
     curl https://repo.data.kit.edu/devel/automatic-repo-data-kit-edu-key.gpg | gpg --dearmor > /etc/apt/trusted.gpg.d/auto-kitrepo-archive.gpg
     echo "deb [signed-by=/etc/apt/trusted.gpg.d/auto-kitrepo-archive.gpg] https://repo.data.kit.edu/prerel/${DISTRO}/${RELEASE} ./" > /etc/apt/sources.list.d/kit-repo.list
-    apt update
-    apt install -y oinit oinit-openssh oinit-ca
+    apt-get update
+    apt-get install -y oinit oinit-openssh oinit-ca
 
 .setup-repo-rpm: &setup-repo-rpm
   - |
@@ -198,7 +198,7 @@ debian-bookworm:
     RELEASE: bookworm
   image: debian:bookworm-slim
 
-ubuntu-jammy:
+ubuntu-lunar:
   stage: integration
   only:
     refs:
@@ -209,8 +209,8 @@ ubuntu-jammy:
     - *run-integration
   variables:
     DISTRO: ubuntu
-    RELEASE: jammy
-  image: ubuntu:jammy
+    RELEASE: lunar
+  image: ubuntu:lunar
 
 fedora-38:
   stage: integration
