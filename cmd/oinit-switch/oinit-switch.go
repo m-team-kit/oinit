@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"os"
 	"os/exec"
 	"os/user"
@@ -14,7 +15,7 @@ import (
 const (
 	SU_COMMAND  = "su"
 	OINIT_USER  = "oinit"
-	SYS_UID_MAX = 999
+	SYS_UID_MAX = 99
 
 	ERR_NOT_ALLOWED = "This is not allowed."
 	ERR_INTERNAL    = "Internal error. oinit might not be set up correctly."
@@ -38,6 +39,7 @@ func getUid(name string) (int, error) {
 
 func main() {
 	if len(os.Args) != 2 {
+		log.LogError("1")
 		log.LogFatal(ERR_NOT_ALLOWED)
 	}
 
@@ -50,6 +52,8 @@ func main() {
 	// similar), however this check doesn't hurt and increases security.
 	targetUid, err := getUid(target)
 	if err != nil || targetUid < SYS_UID_MAX {
+		log.LogInfo(fmt.Sprintf("targetUID < SYS_UID_MAX (%d < %d)", targetUid, SYS_UID_MAX))
+		log.LogError("2")
 		log.LogFatal(ERR_NOT_ALLOWED)
 	}
 
@@ -81,6 +85,7 @@ func main() {
 		}
 
 		if curUid != oinitUid {
+			log.LogError("3")
 			log.LogFatal(ERR_NOT_ALLOWED)
 		}
 	}
@@ -107,6 +112,7 @@ func main() {
 		// this program does not run ssh command when a tty is present.
 
 		if isatty.IsTerminal(os.Stdout.Fd()) || isatty.IsCygwinTerminal(os.Stdout.Fd()) {
+			log.LogError("4")
 			log.LogFatal(ERR_NOT_ALLOWED)
 		}
 
