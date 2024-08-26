@@ -165,8 +165,8 @@ nfpms:
         - statically-linked-binary
         - changelog-file-missing-in-native-package
 
-  - id: oinit-openssh-server
-    package_name: oinit-openssh-server
+  - id: oinit-openssh
+    package_name: oinit-openssh
     builds:
       - oinit-switch
       - oinit-shell
