@@ -84,11 +84,18 @@ nfpms:
     package_name: oinit
     builds:
       - oinit
-    homepage: https://github.com/lbrocke/oinit
-    maintainer: Lukas Brocke <lukas@brocke.net>
+    homepage: https://codebase.helmholtz.cloud/m-team/oidc/ssh/oinit/
+    maintainer: Marcus Hardt <hardt@kit.edu>
     description: |-
-      Command-line tool to enable federated identities in OpenSSH.
+      Command-line client tool to use ssh-certificates with openssh
+      oinit is a set of tools to integrate federated identities with 
+      ssh-certificates. This client tool uses OpenID Connect to
+      authenticate with the REST interface the oinit-ca.
     license: MIT
+    contents:
+      - src: copyright
+        dst: /usr/share/doc/{{ .PackageName }}/copyright
+    section: misc
     formats:
       - apk
       - deb
@@ -124,11 +131,16 @@ nfpms:
     package_name: oinit-ca
     builds:
       - oinit-ca
-    homepage: https://github.com/lbrocke/oinit
-    maintainer: Lukas Brocke <lukas@brocke.net>
+    homepage: https://codebase.helmholtz.cloud/m-team/oidc/ssh/oinit/
+    maintainer: Marcus Hardt <hardt@kit.edu>
     description: |-
-      Certificate authority for oinit command-line tool.
+      Certificate authority for oinit command-line tool
+      oinit is a set of tools to integrate federated identities with
+      ssh-certificates. This is the CA package, which uses the openssh
+      ssh-ca and adds a REST interface, which allows federated users to
+      authenticate using their federated identitty via OpenID Connect.
     license: MIT
+    section: misc
     formats:
       - apk
       - deb
@@ -138,12 +150,13 @@ nfpms:
       - oinit-ca
     bindir: /usr/sbin
     contents:
+      - src: copyright
+        dst: /usr/share/doc/{{ .PackageName }}/copyright
       - src: configs/config.sample.ini
         dst: /etc/oinit-ca/config.ini
         type: config
       - src: init/oinit-ca-packaged.service
         dst: /usr/lib/systemd/system/oinit-ca.service
-        type: config
     scripts:
       postinstall: "scripts/oinit-ca-postinstall.sh"
       preremove: "scripts/oinit-ca-preremove.sh"
@@ -152,16 +165,24 @@ nfpms:
         - statically-linked-binary
         - changelog-file-missing-in-native-package
 
-  - id: oinit-openssh
-    package_name: oinit-openssh
+  - id: oinit-openssh-server
+    package_name: oinit-openssh-server
     builds:
       - oinit-switch
       - oinit-shell
-    homepage: https://github.com/lbrocke/oinit
-    maintainer: Lukas Brocke <lukas@brocke.net>
+    homepage: https://codebase.helmholtz.cloud/m-team/oidc/ssh/oinit/
+    maintainer: Marcus Hardt <hardt@kit.edu>
     description: |-
-      oinit programs to integrate with OpenSSH.
+      oinit programs to integrate with OpenSSH
+      oinit is a set of tools to integrate federated identities with
+      ssh-certificates. This is the serverside package, which supports
+      mapping the federated user to the corresponding user in the
+      ssh-certificate.
     license: MIT
+    contents:
+      - src: copyright
+        dst: /usr/share/doc/{{ .PackageName }}/copyright
+    section: misc
     formats:
       - apk
       - deb
@@ -174,7 +195,6 @@ nfpms:
       deb:
         recommends:
           - openssh-server
-          - util-linux
           - motley-cue
       rpm:
         recommends:
@@ -198,16 +218,16 @@ nfpms:
       lintian_overrides:
         - statically-linked-binary
         - changelog-file-missing-in-native-package
-dockers:
-  - id: oinit-ca
-    ids:
-      - oinit-ca
-    image_templates:
-      - "{{ .Env.REGISTRY }}/{{ .Env.IMAGE }}:latest"
-      - "{{ .Env.REGISTRY }}/{{ .Env.IMAGE }}:{{ .Tag }}"
-    dockerfile: "build/Dockerfile.goreleaser"
-    build_flag_templates:
-      - "--pull"
-      - "--label=org.opencontainers.image.revision={{.FullCommit}}"
-      - "--label=org.opencontainers.image.created={{.Date}}"
-      - "--label=org.opencontainers.image.version={{.Version}}"
+# dockers:
+#   - id: oinit-ca
+#     ids:
+#       - oinit-ca
+#     image_templates:
+#       - "{{ .Env.REGISTRY }}/{{ .Env.IMAGE }}:latest"
+#       - "{{ .Env.REGISTRY }}/{{ .Env.IMAGE }}:{{ .Tag }}"
+#     dockerfile: "build/Dockerfile.goreleaser"
+#     build_flag_templates:
+#       - "--pull"
+#       - "--label=org.opencontainers.image.revision={{.FullCommit}}"
+#       - "--label=org.opencontainers.image.created={{.Date}}"
+#       - "--label=org.opencontainers.image.version={{.Version}}"
