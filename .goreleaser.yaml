@@ -198,16 +198,16 @@ nfpms:
       lintian_overrides:
         - statically-linked-binary
         - changelog-file-missing-in-native-package
-dockers:
-  - id: oinit-ca
-    ids:
-      - oinit-ca
-    image_templates:
-      - "{{ .Env.REGISTRY }}/{{ .Env.IMAGE }}:latest"
-      - "{{ .Env.REGISTRY }}/{{ .Env.IMAGE }}:{{ .Tag }}"
-    dockerfile: "build/Dockerfile.goreleaser"
-    build_flag_templates:
-      - "--pull"
-      - "--label=org.opencontainers.image.revision={{.FullCommit}}"
-      - "--label=org.opencontainers.image.created={{.Date}}"
-      - "--label=org.opencontainers.image.version={{.Version}}"
+# dockers:
+#   - id: oinit-ca
+#     ids:
+#       - oinit-ca
+#     image_templates:
+#       - "{{ .Env.REGISTRY }}/{{ .Env.IMAGE }}:latest"
+#       - "{{ .Env.REGISTRY }}/{{ .Env.IMAGE }}:{{ .Tag }}"
+#     dockerfile: "build/Dockerfile.goreleaser"
+#     build_flag_templates:
+#       - "--pull"
+#       - "--label=org.opencontainers.image.revision={{.FullCommit}}"
+#       - "--label=org.opencontainers.image.created={{.Date}}"
+#       - "--label=org.opencontainers.image.version={{.Version}}"
