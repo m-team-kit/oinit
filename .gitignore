@@ -2,4 +2,4 @@
 
 bin/
 dist/
-/.cache/
+/.cache/results/
