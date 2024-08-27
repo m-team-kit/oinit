@@ -83,16 +83,16 @@ oinit-switch:
   script:
     - make oinit-switch
 
-prerelease:
+package:
   stage: package
   image:
     name: docker:stable
   services:
     - docker:dind
-  only:
-    refs:
-      - tags
-      - prerelease
+  # only:
+  #   refs:
+  #     - tags
+  #     - prerelease
   tags:
     - linux
   variables:
@@ -100,12 +100,15 @@ prerelease:
     GIT_DEPTH: 0
     REPO_HOST: repo.data.kit.edu
     REPO_USER: cicd
+  before_script:
+    - apk add git
   script:
-    - if [ -z "$CI_COMMIT_TAG" ]; then docker run --rm -v $PWD:/tmp/oinit -w /tmp/oinit bitnami/git .gitlab-ci-scripts/set-prerel-version.sh; fi;
+    - |
+      [[ "$CI_COMMIT_TAG" == "${PREREL_BRANCH_NAME}" ]] && {
+          .gitlab-ci-scripts/set-prerel-version.sh
+      }
     # - .gitlab-ci-scripts/goreleaser.sh && .gitlab-ci-scripts/upload.sh
-    - .gitlab-ci-scripts/goreleaser.sh
-  # after_script:
-  #   - docker run --rm curlimages/curl -d "repo=github.com/lbrocke/oinit" https://goreportcard.com/checks
+      .gitlab-ci-scripts/goreleaser.sh
 
 .setup-repo-deb: &setup-repo-deb
   - |
