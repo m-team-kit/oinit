@@ -23,7 +23,7 @@ image: golang:1.23
 stages:
   - build
   - test
-  # - lint
+  - lint
   - package
   - integration
   - publish
