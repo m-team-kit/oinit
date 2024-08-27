@@ -109,6 +109,9 @@ package:
       }
       # .gitlab-ci-scripts/goreleaser.sh && .gitlab-ci-scripts/upload.sh
       .gitlab-ci-scripts/goreleaser.sh
+  artifacts:
+    paths:
+      - "results/*"
 
 .setup-repo-deb: &setup-repo-deb
   - |
