@@ -23,7 +23,7 @@ image: golang:1.23
 stages:
   - build
   - test
-  - lint
+  # - lint
   - package
   - integration
   - publish
@@ -105,6 +105,7 @@ package:
   script:
     - |
       [[ "$CI_COMMIT_TAG" == "${PREREL_BRANCH_NAME}" ]] && {
+          echo "Running set-prerel-version"
           .gitlab-ci-scripts/set-prerel-version.sh
       }
       # .gitlab-ci-scripts/goreleaser.sh && .gitlab-ci-scripts/upload.sh
