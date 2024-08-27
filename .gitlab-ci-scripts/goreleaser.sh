@@ -10,5 +10,5 @@ docker run --rm --privileged \
   -v "$PWD":"$BASEDIR" \
   -w "$BASEDIR" \
   -v /var/run/docker.sock:/var/run/docker.sock \
-  goreleaser/goreleaser release --skip publish --skip docker
+  goreleaser/goreleaser release --skip publish --skip docker --verbose
 # do not add commands here, script exists with status of last command
