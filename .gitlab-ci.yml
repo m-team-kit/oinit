@@ -1,6 +1,18 @@
 ---
 include:
-  - 'https://codebase.helmholtz.cloud/m-team/tools/ci-voodoo/raw/master/ci-include/pipeline-jobs-publish-to-repo.yml'
+  - 'https://codebase.helmholtz.cloud/m-team/tools/ci-voodoo/raw/master/ci-include/generic-ci.yml'
+publish-to-devel:
+  extends:
+    - .publish-to-devel
+
+publish-to-prerel:
+  extends:
+    - .publish-to-prerel
+
+publish-to-preprod:
+  extends:
+    - .publish-to-preprod
+
 image: golang:1.23
 
 stages:
