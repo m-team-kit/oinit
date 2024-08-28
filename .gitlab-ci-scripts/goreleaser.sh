@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/bin/bash
 
 BASEDIR=/go/src/github.com/lbrocke/oinit
 # check version of goreleaser
@@ -7,8 +7,8 @@ docker images | grep goreleaser
 docker pull goreleaser/goreleaser
 
 GORELEASER_OPTIONS=""
-[[ ${CI_COMMIT_BRANCH} != ${CI_DEFAULT_BRANCH} ]] && {
-    [[ ${CI_COMMIT_BRANCH} != ${PREREL_BRANCH_NAME} && {
+[[ "${CI_COMMIT_BRANCH}" != "${CI_DEFAULT_BRANCH}" ]] && {
+    [[ "${CI_COMMIT_BRANCH}" != "${PREREL_BRANCH_NAME}" ]] && {
         GORELEASER_OPTIONS="--snapshot"
     }
 }
