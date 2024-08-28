@@ -101,7 +101,7 @@ package:
     REPO_HOST: repo.data.kit.edu
     REPO_USER: cicd
   before_script:
-    - apk add git
+    - apk add bash git
   script:
     - |
       [[ "$CI_COMMIT_TAG" == "${PREREL_BRANCH_NAME}" ]] && {
