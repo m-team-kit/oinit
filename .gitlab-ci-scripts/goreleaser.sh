@@ -13,6 +13,8 @@ GORELEASER_OPTIONS=""
     }
 }
 echo "PWD: ${PWD}"
+echo "git status:"
+git status
 echo "Running:"
 echo "    goreleaser/goreleaser release --skip publish --skip docker --verbose  ${GORELEASER_OPTIONS}"
 
