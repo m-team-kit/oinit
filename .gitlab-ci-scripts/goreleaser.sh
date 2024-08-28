@@ -12,7 +12,9 @@ GORELEASER_OPTIONS=""
         GORELEASER_OPTIONS="--snapshot"
     }
 }
-echo "GORELEASER_OPTIONS: ${GORELEASER_OPTIONS}"
+echo "PWD: ${PWD}"
+echo "Running:"
+echo "    goreleaser/goreleaser release --skip publish --skip docker --verbose  ${GORELEASER_OPTIONS}"
 
 # run goreleaser to build packages
 docker run --rm --privileged \
