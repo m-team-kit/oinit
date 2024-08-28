@@ -5,6 +5,9 @@ BASEDIR=/go/src/github.com/lbrocke/oinit
 docker images | grep goreleaser
 # update goreleaser
 docker pull goreleaser/goreleaser
+
+git status
+
 # run goreleaser to build packages
 docker run --rm --privileged \
   -v "$PWD":"$BASEDIR" \
