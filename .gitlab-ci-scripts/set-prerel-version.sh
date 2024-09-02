@@ -41,7 +41,14 @@ for R in $REMOTES; do
     [ "x${R}" = "xcodebase" ] && break
 done
 
-PREREL=$(git rev-list --count HEAD ^"$MASTER_BRANCH")
+[[ "${DEVSTRING}" == "dev" ]] && {
+    [[ -z ${CI_JOB_ID} ]] || {
+        PREREL=${CI_JOB_ID}
+    }
+}
+[[ -z ${PREREL} ]] && {
+    PREREL=$(git rev-list --count HEAD ^"$MASTER_BRANCH")
+}
 
 # use version file:
 VERSION=$(cat "$VERSION_FILE")
