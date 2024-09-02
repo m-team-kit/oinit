@@ -38,6 +38,7 @@ for R in $REMOTES; do
     MASTER_BRANCH="refs/remotes/${R}/${MASTER}"
     #echo "Master-branch: ${MASTER_BRANCH}"
     [ "x${R}" = "xorigin" ] && break
+    [ "x${R}" = "xcodebase" ] && break
 done
 
 PREREL=$(git rev-list --count HEAD ^"$MASTER_BRANCH")
