@@ -9,6 +9,7 @@ docker pull goreleaser/goreleaser
 GORELEASER_OPTIONS=""
 [[ "${CI_COMMIT_BRANCH}" != "${CI_DEFAULT_BRANCH}" ]] && {
     [[ "${CI_COMMIT_BRANCH}" != "${PREREL_BRANCH_NAME}" ]] && {
+        # we're on devel
         GORELEASER_OPTIONS="--snapshot"
     }
 }
