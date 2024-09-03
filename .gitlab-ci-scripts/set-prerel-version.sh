@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/bin/bash
 
 DEVSTRING="pr"
 VERSION_FILE=VERSION
