@@ -89,6 +89,16 @@ func handleCommandAdd(args []string) {
 		log.LogInfo("Determined CA from DNS: " + ca)
 	}
 
+	// ensure we have a $HOME/.ssh folder (see issue #3 on oinit codebase)
+	homedirname, err := os.UserHomeDir()
+	if err != nil {
+		log.LogFatal(err.Error())
+	}
+	newpath := filepath.Join(homedirname, ".ssh")
+	if err := os.MkdirAll(newpath, os.ModePerm); err != nil {
+		log.LogFatal("Could not find $HOME/.ssh" + err.Error())
+	}
+
 	// Try to contact CA, which returns the host CA public key to be added
 	// to the user's known_hosts file.
 	if res, err := liboinitca.NewClient(ca).GetHost(host); err != nil {
@@ -103,17 +113,6 @@ func handleCommandAdd(args []string) {
 				log.LogWarn("\t" + newLine)
 			}
 		}
-	}
-
-	// ensure we have a $HOME/.ssh folder (see issue #3 on oinit codebase)
-
-	homedirname, err := os.UserHomeDir()
-	if err != nil {
-		log.LogFatal(err.Error())
-	}
-	newpath := filepath.Join(homedirname, ".ssh")
-	if err := os.MkdirAll(newpath, os.ModePerm); err != nil {
-		log.LogFatal("Could not find $HOME/.ssh" + err.Error())
 	}
 
 	// Add to users' hosts file.
