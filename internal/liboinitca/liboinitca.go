@@ -19,7 +19,7 @@ const (
 	ERR_SERVER_RESPONSE      = "server responded: "
 	ERR_SERVER_RESPONSE_CODE = "server responded with unexpected code: %d"
 
-	API_V1 = "/api/v1"
+	API_V1 = "/oinit/api/v1"
 )
 
 type Client struct {

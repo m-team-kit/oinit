@@ -46,7 +46,7 @@ func main() {
 	router := gin.Default()
 	router.Use(ConfigMiddleware(cfg))
 
-	gAPI := router.Group("/api")
+	gAPI := router.Group("/oinit/api")
 	{
 		gAPI.GET("/docs/*any", api.GetSwagger)
 
@@ -64,7 +64,7 @@ func main() {
 	}
 
 	docs.SwaggerInfo.Version = api.API_VERSION
-	docs.SwaggerInfo.BasePath = "/api/v1"
+	docs.SwaggerInfo.BasePath = "/oinit/api/v1"
 	docs.SwaggerInfo.Title = SWAGGER_TITLE
 	docs.SwaggerInfo.Description = SWAGGER_DESC
 
