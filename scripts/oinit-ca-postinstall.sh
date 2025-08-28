@@ -5,6 +5,9 @@ set -eu
 if command -v systemctl > /dev/null && [ "$(systemctl is-system-running)" != "offline" ]; then
     # load new oinit-ca.service file
     systemctl daemon-reload
+    systemctl enable oinit-ca
+    systemctl start oinit-ca
+    
 fi
 
 test -d /etc/oinit-ca || mkdir -p /etc/oinit-ca/

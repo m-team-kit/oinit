@@ -4,4 +4,5 @@ set -eu
 
 if command -v systemctl >/dev/null; then
     systemctl stop oinit-ca || true
+    systemctl disable oinit-ca || true
 fi
