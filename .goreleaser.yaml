@@ -158,7 +158,7 @@ nfpms:
       - src: init/oinit-ca-packaged.service
         dst: /usr/lib/systemd/system/oinit-ca.service
       - src: configs/nginx.oinit-ca.conf
-        dst: /etc/motley-cue/location.d/nginx.oinit-ca.conf
+        dst: /etc/nginx/location.d/nginx.oinit-ca.conf
     scripts:
       postinstall: "scripts/oinit-ca-postinstall.sh"
       preremove: "scripts/oinit-ca-preremove.sh"
