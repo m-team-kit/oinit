@@ -86,7 +86,7 @@ func AddSSHKnownHost(host, port, pubkey string) error {
 }
 
 func GenerateMatchBlock() string {
-	return "Match exec \"oinit match %h %p\"\n\tUser oinit"
+	return "Match exec \"oinit match %h %p\"\n\tUser oinit\n\tIdentityFile ~/.ssh/oinit_%h_%p\n\tCertificateFile ~/.ssh/oinit_%h_%p-cert.pub"
 }
 
 func fileExists(path string) bool {
