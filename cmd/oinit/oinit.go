@@ -2,6 +2,7 @@ package main
 
 import (
 	"crypto/ed25519"
+	"encoding/pem"
 	"errors"
 	"fmt"
 	"net"
@@ -28,14 +29,24 @@ import (
 
 const (
 	COMMAND_ADD    = "add"
+	COMMAND_DEL    = "del"
 	COMMAND_DELETE = "delete"
 	COMMAND_LIST   = "list"
 	COMMAND_MATCH  = "match"
 
-	USAGE = "Usage:\n" +
-		"\toinit add    <host>[:port] [ca]\tAdd a host managed by oinit.\n" +
-		"\toinit delete <host>[:port]\tDelete a host.\n" +
-		"\toinit list\t\t\tList all hosts managed by oinit.\n"
+	USAGE = "oinit-v1.2.0\nUsage:\n" +
+		"\toinit add    <ssh-host>[:port]\tAdd a host managed by oinit (CA found via DNS).\n" +
+		"\toinit add    <ssh-host>[:port]  [http[s]://<ca-host>[:<port>]]\n" +
+		"                                \tAdd a host managed by oinit, with a specific CA.\n" +
+		"\toinit del    <ssh-host>[:port]\tRemove oinit management for a host.\n" +
+		"\toinit list\t\t\tList all hosts managed by oinit.\n" +
+		"\n" +
+		"\tThe following environment variables are considered as follows:\n" +
+		"\tSkip prompting:\n" +
+		"\t  - OIDC_AGENT_ACCOUNT:			Name of an oidc-agent account to use\n" +
+		"\t  - OIDC_ISS, or OIDC_ISSUER:		Name of an oidc-issuer to use\n" +
+		"\tFind an access token\n" +
+		"\t  ACCESS_TOKEN, OIDC, OS_ACCESS_TOKEN, OIDC_ACCESS_TOKEN\n"
 )
 
 // handleCommandAdd handles the 'add' command to add a host managed by oinit.
@@ -195,9 +206,6 @@ func handleCommandList() {
 // and then requests an access token via oidc-agent. It takes the CA client
 // and host as arguments and returns the access token.
 func getTokenFromOidcAgent(caClient liboinitca.Client, host string) string {
-	if !oidc.AgentIsRunning() {
-		log.LogFatalTTY("oidc-agent is not running, please start it first.")
-	}
 
 	hostRes, err := caClient.GetHost(host)
 	if err != nil {
@@ -297,6 +305,44 @@ func promptProviders(providers []string) (string, error) {
 	return providers[selected-1], nil
 }
 
+// promptForManualToken prompts the user to manually enter an access token
+// when oidc-agent is not available. Shows the list of supported providers.
+func promptForManualToken(caClient liboinitca.Client, host string) string {
+	log.LogWarnTTY("oidc-agent is not running.")
+
+	hostRes, err := caClient.GetHost(host)
+	if err != nil {
+		log.LogFatalTTY("Contacting the CA failed: " + err.Error())
+	}
+
+	// Display supported providers
+	log.LogTTY("Supported OIDC providers for this host:")
+	for i, info := range hostRes.Providers {
+		log.LogTTY(fmt.Sprintf("  %d. %s", i+1, info.URL))
+	}
+	log.LogTTY("")
+
+	// Prompt for access token
+	tty, err := tty.Open()
+	if err != nil {
+		log.LogFatalTTY("There was an error opening your TTY: " + err.Error())
+	}
+	defer tty.Close()
+
+	log.PromptTTY("Please enter an access token for any of the above providers: ")
+	token, err := tty.ReadString()
+	if err != nil {
+		log.LogFatalTTY("There was an error reading from your TTY: " + err.Error())
+	}
+
+	token = strings.TrimSpace(token)
+	if token == "" {
+		log.LogFatalTTY("No access token provided.")
+	}
+
+	return token
+}
+
 // generateEd25519Keys generates a new ED25519 key pair and returns the
 // marshalled public key (ssh-ed25519 AAA...) as well as private key.
 func generateEd25519Keys() (string, ed25519.PrivateKey, error) {
@@ -337,16 +383,27 @@ func handleCommandMatch(args []string) {
 
 	caClient := liboinitca.NewClient(ca)
 
-	// Verify that ssh-agent is running, which is required in any case
-	if !sshutil.AgentIsRunning() {
-		log.LogFatalTTY("ssh-agent is not running, please start it first.")
-	}
+	var sshAgent agent.ExtendedAgent
+	var useAgent bool
 
-	sshAgent, _ := sshutil.GetAgent()
+	// Check if ssh-agent is running
+	if sshutil.AgentIsRunning() {
+		sshAgent, _ = sshutil.GetAgent()
+		useAgent = true
 
-	if exists, err := sshutil.AgentHasCertificate(sshAgent, host); err == nil && exists {
-		// Agent already holds certificate, therefore do not request a new one
-		return
+		if exists, err := sshutil.AgentHasCertificate(sshAgent, host); err == nil && exists {
+			// Agent already holds certificate, therefore do not request a new one
+			return
+		}
+	} else {
+		useAgent = false
+		// log.LogWarnTTY("ssh-agent is not running. Certificate will be saved to file.")
+
+		// Check if we already have a valid certificate file
+		if hasValidCertificateFile(host, hostport) {
+			log.LogSuccessTTY("Using existing certificate file")
+			return
+		}
 	}
 
 	// Try to get token from environment variable
@@ -354,9 +411,13 @@ func handleCommandMatch(args []string) {
 		"OIDC_ACCESS_TOKEN", "WATTS_TOKEN", "WATTSON_TOKEN")
 
 	if token == "" {
-		// Use oidc-agent to get token.
-		// getTokenFromOidcAgent() exits with -1 for any errors.
-		token = getTokenFromOidcAgent(caClient, host)
+		if oidc.AgentIsRunning() {
+			// Use oidc-agent to get token.
+			token = getTokenFromOidcAgent(caClient, host)
+		} else {
+			// oidc-agent not available, prompt for manual token entry
+			token = promptForManualToken(caClient, host)
+		}
 	}
 
 	pubkey, privkey, err := generateEd25519Keys()
@@ -376,16 +437,128 @@ func handleCommandMatch(args []string) {
 
 	cert := certPk.(*ssh.Certificate)
 	validUntil := time.Unix(int64(cert.ValidBefore-1), 0)
+	log.LogSuccessTTY(fmt.Sprintf("Received a certificate which is valid until %s", validUntil))
 
-	if sshAgent.Add(agent.AddedKey{
-		PrivateKey:   privkey,
-		Certificate:  cert,
-		LifetimeSecs: uint32(time.Until(validUntil).Seconds()),
-	}) != nil {
-		log.LogFatalTTY("Cannot add private key and certificate to ssh-agent.")
+	if useAgent {
+		if sshAgent.Add(agent.AddedKey{
+			PrivateKey:   privkey,
+			Certificate:  cert,
+			LifetimeSecs: uint32(time.Until(validUntil).Seconds()),
+		}) != nil {
+			log.LogFatalTTY("Cannot add private key and certificate to ssh-agent.")
+		} else {
+			// log.LogSuccessTTY(fmt.Sprintf("Received a certificate which is valid until %s", validUntil))
+			log.LogSuccessTTY(fmt.Sprintf("Certificate stored in ssh-agent"))
+		}
 	} else {
-		log.LogSuccessTTY(fmt.Sprintf("Received a certificate which is valid until %s", validUntil))
+		// Save certificate and private key to files
+		if err := saveCertificateToFiles(host, hostport, cert, privkey); err != nil {
+			log.LogFatalTTY("Failed to save certificate to file: " + err.Error())
+		} else {
+			// log.LogSuccessTTY(fmt.Sprintf("Certificate saved to file, valid until %s", validUntil))
+		}
 	}
+}
+
+// hasValidCertificateFile checks if a valid certificate file exists for the given host.
+// Returns true if the certificate file exists and is still valid (not expired).
+func hasValidCertificateFile(host, hostport string) bool {
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return false
+	}
+
+	// Generate certificate filename based on host and port
+	_, port, err := net.SplitHostPort(hostport)
+	if err != nil {
+		port = "22" // Default SSH port
+	}
+
+	certFile := filepath.Join(homeDir, ".ssh", fmt.Sprintf("oinit_%s_%s-cert.pub", host, port))
+	keyFile := filepath.Join(homeDir, ".ssh", fmt.Sprintf("oinit_%s_%s", host, port))
+
+	// Check if certificate file exists
+	if _, err := os.Stat(certFile); os.IsNotExist(err) {
+		log.LogInfoTTY(fmt.Sprintf("Certificate file does not exist"))
+		return false
+	}
+	// Check if key file exists
+	if _, err := os.Stat(keyFile); os.IsNotExist(err) {
+		log.LogInfoTTY(fmt.Sprintf("Certificate key file does not exist"))
+		return false
+	}
+
+	// Read and parse the certificate file
+	certData, err := os.ReadFile(certFile)
+	if err != nil {
+		log.LogInfoTTY(fmt.Sprintf("Can not read certificate file"))
+		return false
+	}
+
+	certPk, _, _, _, err := ssh.ParseAuthorizedKey(certData)
+	if err != nil {
+		log.LogInfoTTY(fmt.Sprintf("Found certificate but can not parse it"))
+		return false
+	}
+
+	cert, ok := certPk.(*ssh.Certificate)
+	if !ok {
+		log.LogInfoTTY(fmt.Sprintf("Found cert, but it's not ok"))
+		return false
+	}
+
+	// Check if certificate is still valid (not expired)
+	now := time.Now().Unix()
+	if uint64(now) >= cert.ValidBefore {
+		log.LogInfoTTY(fmt.Sprintf("Certificate Expired"))
+		return false // Certificate has expired
+	}
+
+	return true
+}
+
+// saveCertificateToFiles saves the SSH certificate and private key to files
+// in the user's .ssh directory when ssh-agent is not available.
+func saveCertificateToFiles(host string, hostport string, cert *ssh.Certificate, privkey ed25519.PrivateKey) error {
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return err
+	}
+
+	sshDir := filepath.Join(homeDir, ".ssh")
+	if err := os.MkdirAll(sshDir, 0700); err != nil {
+		return err
+	}
+
+	// Generate filenames based on host and port (matching SSH config %h_%p format)
+	_, port, err := net.SplitHostPort(hostport)
+	if err != nil {
+		port = "22" // Default SSH port
+	}
+	keyFile := filepath.Join(sshDir, fmt.Sprintf("oinit_%s_%s", host, port))
+	certFile := filepath.Join(sshDir, fmt.Sprintf("oinit_%s_%s-cert.pub", host, port))
+
+	// Save private key in OpenSSH format
+	privKeyBlock, err := ssh.MarshalPrivateKey(privkey, "")
+	if err != nil {
+		return err
+	}
+
+	privKeyBytes := pem.EncodeToMemory(privKeyBlock)
+	if err := os.WriteFile(keyFile, privKeyBytes, 0600); err != nil {
+		return err
+	}
+
+	// Save certificate
+	certBytes := ssh.MarshalAuthorizedKey(cert)
+	if err := os.WriteFile(certFile, certBytes, 0644); err != nil {
+		return err
+	}
+
+	// log.LogInfoTTY(fmt.Sprintf("Private key saved to: %s", keyFile))
+	log.LogSuccessTTY(fmt.Sprintf("Certificate saved to file: %s", certFile))
+
+	return nil
 }
 
 func main() {
@@ -399,6 +572,8 @@ func main() {
 	switch args[0] {
 	case COMMAND_ADD:
 		handleCommandAdd(args[1:])
+	case COMMAND_DEL:
+		handleCommandDelete(args[1:])
 	case COMMAND_DELETE:
 		handleCommandDelete(args[1:])
 	case COMMAND_LIST:
