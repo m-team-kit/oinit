@@ -23,7 +23,7 @@ const (
 )
 
 type Client struct {
-	addr string
+	addrs []string
 }
 
 // parseError tries to unmarshal the given response body into
@@ -56,8 +56,14 @@ func parseResponse(responseBody io.ReadCloser, into interface{}) error {
 func NewClient(addr string) Client {
 	addr, _ = strings.CutSuffix(addr, "/")
 
+	if strings.Contains(addr, "://") {
+		return Client{
+			addrs: []string{addr},
+		}
+	}
+
 	return Client{
-		addr: addr,
+		addrs: []string{"https://" + addr, "http://" + addr},
 	}
 }
 
@@ -65,27 +71,35 @@ func NewClient(addr string) Client {
 func (c Client) GetHost(host string) (api.ApiResponseHost, error) {
 	var response api.ApiResponseHost
 
-	res, err := http.Get(fmt.Sprintf("%s%s/%s", c.addr, API_V1, url.PathEscape(host)))
-	if err != nil {
-		return response, errors.New(ERR_REQUEST)
+	for _, base := range c.addrs {
+		res, err := http.Get(fmt.Sprintf("%s%s/%s", base, API_V1, url.PathEscape(host)))
+		if err != nil {
+			continue
+		}
+
+		// ensure body is closed before next iteration/return
+		switch res.StatusCode {
+		case http.StatusOK:
+			err = parseResponse(res.Body, &response)
+			res.Body.Close()
+			return response, err
+		case http.StatusBadRequest:
+			fallthrough
+		case http.StatusNotFound:
+			fallthrough
+		case http.StatusInternalServerError:
+			fallthrough
+		case http.StatusBadGateway:
+			err = parseError(res.Body)
+			res.Body.Close()
+			return response, err
+		default:
+			res.Body.Close()
+			return response, fmt.Errorf(ERR_SERVER_RESPONSE_CODE, res.StatusCode)
+		}
 	}
 
-	defer res.Body.Close()
-
-	switch res.StatusCode {
-	case http.StatusOK:
-		return response, parseResponse(res.Body, &response)
-	case http.StatusBadRequest:
-		fallthrough
-	case http.StatusNotFound:
-		fallthrough
-	case http.StatusInternalServerError:
-		fallthrough
-	case http.StatusBadGateway:
-		return response, parseError(res.Body)
-	default:
-		return response, fmt.Errorf(ERR_SERVER_RESPONSE_CODE, res.StatusCode)
-	}
+	return response, errors.New(ERR_REQUEST)
 }
 
 // Generate and return a new SSH certificate using the given access token.
@@ -100,27 +114,34 @@ func (c Client) PostHostCertificate(host, pubkey, token string) (api.ApiResponse
 		return response, err
 	}
 
-	res, err := http.Post(fmt.Sprintf("%s%s/%s/certificate", c.addr, API_V1, url.PathEscape(host)), "application/json", bytes.NewReader(reqBody))
-	if err != nil {
-		return response, errors.New(ERR_REQUEST)
+	for _, base := range c.addrs {
+		res, err := http.Post(fmt.Sprintf("%s%s/%s/certificate", base, API_V1, url.PathEscape(host)), "application/json", bytes.NewReader(reqBody))
+		if err != nil {
+			continue
+		}
+
+		switch res.StatusCode {
+		case http.StatusCreated:
+			err = parseResponse(res.Body, &response)
+			res.Body.Close()
+			return response, err
+		case http.StatusBadRequest:
+			fallthrough
+		case http.StatusUnauthorized:
+			fallthrough
+		case http.StatusNotFound:
+			fallthrough
+		case http.StatusInternalServerError:
+			fallthrough
+		case http.StatusBadGateway:
+			err = parseError(res.Body)
+			res.Body.Close()
+			return response, err
+		default:
+			res.Body.Close()
+			return response, fmt.Errorf(ERR_SERVER_RESPONSE_CODE, res.StatusCode)
+		}
 	}
 
-	defer res.Body.Close()
-
-	switch res.StatusCode {
-	case http.StatusCreated:
-		return response, parseResponse(res.Body, &response)
-	case http.StatusBadRequest:
-		fallthrough
-	case http.StatusUnauthorized:
-		fallthrough
-	case http.StatusNotFound:
-		fallthrough
-	case http.StatusInternalServerError:
-		fallthrough
-	case http.StatusBadGateway:
-		return response, parseError(res.Body)
-	default:
-		return response, fmt.Errorf(ERR_SERVER_RESPONSE_CODE, res.StatusCode)
-	}
+	return response, errors.New(ERR_REQUEST)
 }
