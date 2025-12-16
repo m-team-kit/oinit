@@ -46,13 +46,20 @@ func main() {
 	router := gin.Default()
 	router.Use(ConfigMiddleware(cfg))
 
+	// Root overview for easier discovery
+	router.GET("/", api.GetOverview)
+	router.GET("/oinit/", api.GetOverview)
+	router.GET("/oinit", api.GetOverview)
+
 	gAPI := router.Group("/oinit/api")
 	{
+		gAPI.GET("/", api.GetOverview)
 		gAPI.GET("/docs/*any", api.GetSwagger)
 
 		v1 := gAPI.Group("/v1")
 		{
 			v1.GET("/", api.GetIndex)
+			v1.GET("", api.GetIndex)
 			v1.GET("/:host", api.GetHost)
 			// Although from the client perspective this route _gets_ a certificate, it
 			//  a) generates a new certificate every time (and thus is not cacheable), and
