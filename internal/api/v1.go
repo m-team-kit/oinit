@@ -88,6 +88,24 @@ func GetIndex(c *gin.Context) {
 	})
 }
 
+func unknownHostError(h string) string {
+	return fmt.Sprintf("Host '%s' is not managed by this CA.", h)
+}
+
+// GetOverview is a minimal API overview for root paths.
+func GetOverview(c *gin.Context) {
+	c.JSON(http.StatusOK, gin.H{
+		"title":   "oinit CA API",
+		"version": API_VERSION,
+		"endpoints": []string{
+			"/oinit/api/v1/",
+			"/oinit/api/v1/{host}",
+			"/oinit/api/v1/{host}/certificate",
+			"/oinit/api/docs/",
+		},
+	})
+}
+
 // GetHost is the handler for GET /:host
 //
 //	@Summary		Get host information
@@ -118,7 +136,7 @@ func GetHost(c *gin.Context) {
 
 	info, err := conf.GetInfo(host.Host)
 	if err != nil {
-		Error(c, http.StatusNotFound, ERR_UNKNOWN_HOST)
+		Error(c, http.StatusNotFound, unknownHostError(host.Host))
 		return
 	}
 
@@ -188,7 +206,7 @@ func PostHostCertificate(c *gin.Context) {
 
 	info, err := conf.GetInfo(host.Host)
 	if err != nil {
-		Error(c, http.StatusNotFound, ERR_UNKNOWN_HOST)
+		Error(c, http.StatusNotFound, unknownHostError(host.Host))
 		return
 	}
 
