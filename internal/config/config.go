@@ -25,6 +25,7 @@ type DefaultOptions struct {
 	PathUserCAPublicKey  string `ini:"user-ca-pubkey"`
 	CertValidity         string `ini:"cert-validity"` // allows non-int values, parsed manually
 	CacheDuration        int    `ini:"cache-duration"`
+	ListenAddress        string `ini:"listen-address"`
 }
 
 type Keys struct {
@@ -43,7 +44,8 @@ type HostGroup struct {
 }
 
 type Config struct {
-	HostGroups []HostGroup
+	HostGroups    []HostGroup
+	ListenAddress string
 }
 
 // HostInfo is returned from the GetInfo function
@@ -82,6 +84,7 @@ func Load(path string) (Config, error) {
 			PathUserCAPublicKey:  defOptions.PathUserCAPublicKey,
 			CertValidity:         defOptions.CertValidity,
 			CacheDuration:        defOptions.CacheDuration,
+			ListenAddress:        defOptions.ListenAddress,
 		}
 
 		if err := hostgroup.MapTo(opts); err != nil {
@@ -98,7 +101,8 @@ func Load(path string) (Config, error) {
 		for key, val := range hostgroup.KeysHash() {
 			if key == "host-ca-privkey" || key == "host-ca-pubkey" ||
 				key == "user-ca-privkey" || key == "user-ca-pubkey" ||
-				key == "cert-validity" || key == "cache-duration" {
+				key == "cert-validity" || key == "cache-duration" ||
+				key == "listen-address" {
 				continue
 			}
 
@@ -119,6 +123,9 @@ func Load(path string) (Config, error) {
 
 		conf.HostGroups = append(conf.HostGroups, *hg)
 	}
+
+	// Set global listen address from default options
+	conf.ListenAddress = defOptions.ListenAddress
 
 	if loadKeys(&conf) != nil {
 		return conf, errors.New("could not open and parse keys")

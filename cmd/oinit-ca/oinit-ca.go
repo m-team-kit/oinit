@@ -1,8 +1,8 @@
 package main
 
 import (
+	"flag"
 	"log"
-	"os"
 
 	docs "github.com/lbrocke/oinit/api/docs"
 	"github.com/lbrocke/oinit/internal/api"
@@ -12,7 +12,7 @@ import (
 )
 
 const (
-	USAGE = "Usage: oinit-ca <host:port> <path/to/config>"
+	USAGE = "Usage: oinit-ca -c <path/to/config> [-l <host:port>]"
 
 	SWAGGER_TITLE = "oinit CA API"
 	SWAGGER_DESC  = "Swagger documentation for the oinit CA REST API."
@@ -28,17 +28,27 @@ func ConfigMiddleware(config config.Config) gin.HandlerFunc {
 }
 
 func main() {
-	args := os.Args[1:]
-	if len(args) != 2 {
+	var configPath = flag.String("c", "", "Path to config file (required)")
+	var listenAddr = flag.String("l", "", "Listen address (host:port), overrides config file")
+	
+	flag.Parse()
+
+	if *configPath == "" {
 		log.Fatalln(USAGE)
 	}
 
-	addr := args[0]
-	conf := args[1]
-
-	cfg, err := config.Load(conf)
+	cfg, err := config.Load(*configPath)
 	if err != nil {
 		log.Fatalln("Error while loading config: " + err.Error())
+	}
+
+	// Determine listen address: command line flag takes precedence over config file
+	addr := *listenAddr
+	if addr == "" {
+		addr = cfg.ListenAddress
+	}
+	if addr == "" {
+		log.Fatalln("Listen address must be specified either via -l flag or in config file")
 	}
 
 	gin.SetMode(gin.ReleaseMode)
