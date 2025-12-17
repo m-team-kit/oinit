@@ -19,6 +19,26 @@ const (
 	PRINCIPAL = "oinit"
 )
 
+// IsGPGAgent checks if the current SSH agent is gpg-agent.
+// gpg-agent does not support SSH certificates, so we need to detect it
+// and avoid using the agent for certificate storage.
+func IsGPGAgent() bool {
+	// Check for GPG_AGENT_INFO environment variable
+	if os.Getenv("GPG_AGENT_INFO") != "" {
+		return true
+	}
+
+	// Check SSH_AUTH_SOCK path pattern
+	sshAuthSock := os.Getenv("SSH_AUTH_SOCK")
+	if sshAuthSock != "" {
+		// gpg-agent typically uses paths containing "gnupg" or "gpg-agent"
+		return strings.Contains(sshAuthSock, "gnupg") || 
+		       strings.Contains(sshAuthSock, "gpg-agent")
+	}
+
+	return false
+}
+
 func AgentIsRunning() bool {
 	sockets := []socket{
 		{
