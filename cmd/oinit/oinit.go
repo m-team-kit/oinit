@@ -458,7 +458,7 @@ func handleCommandMatch(args []string) {
 			log.LogFatalTTY("Cannot add private key and certificate to ssh-agent.")
 		} else {
 			// log.LogSuccessTTY(fmt.Sprintf("Received a certificate which is valid until %s", validUntil))
-			log.LogSuccessTTY(fmt.Sprintf("Certificate stored in ssh-agent"))
+			log.LogSuccessTTY("Certificate stored in ssh-agent")
 		}
 	} else {
 		// Save certificate and private key to files
@@ -489,38 +489,38 @@ func hasValidCertificateFile(host, hostport string) bool {
 
 	// Check if certificate file exists
 	if _, err := os.Stat(certFile); os.IsNotExist(err) {
-		log.LogInfoTTY(fmt.Sprintf("Certificate file does not exist"))
+		log.LogInfoTTY("Certificate file does not exist")
 		return false
 	}
 	// Check if key file exists
 	if _, err := os.Stat(keyFile); os.IsNotExist(err) {
-		log.LogInfoTTY(fmt.Sprintf("Certificate key file does not exist"))
+		log.LogInfoTTY("Certificate key file does not exist")
 		return false
 	}
 
 	// Read and parse the certificate file
 	certData, err := os.ReadFile(certFile)
 	if err != nil {
-		log.LogInfoTTY(fmt.Sprintf("Can not read certificate file"))
+		log.LogInfoTTY("Can not read certificate file")
 		return false
 	}
 
 	certPk, _, _, _, err := ssh.ParseAuthorizedKey(certData)
 	if err != nil {
-		log.LogInfoTTY(fmt.Sprintf("Found certificate but can not parse it"))
+		log.LogInfoTTY("Found certificate but can not parse it")
 		return false
 	}
 
 	cert, ok := certPk.(*ssh.Certificate)
 	if !ok {
-		log.LogInfoTTY(fmt.Sprintf("Found cert, but it's not ok"))
+		log.LogInfoTTY("Found cert, but it's not ok")
 		return false
 	}
 
 	// Check if certificate is still valid (not expired)
 	now := time.Now().Unix()
 	if uint64(now) >= cert.ValidBefore {
-		log.LogInfoTTY(fmt.Sprintf("Certificate Expired"))
+		log.LogInfoTTY("Certificate Expired")
 		return false // Certificate has expired
 	}
 
