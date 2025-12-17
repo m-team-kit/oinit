@@ -308,8 +308,6 @@ func promptProviders(providers []string) (string, error) {
 // promptForManualToken prompts the user to manually enter an access token
 // when oidc-agent is not available. Shows the list of supported providers.
 func promptForManualToken(caClient liboinitca.Client, host string) string {
-	log.LogWarnTTY("oidc-agent is not running.")
-
 	hostRes, err := caClient.GetHost(host)
 	if err != nil {
 		log.LogFatalTTY("Contacting the CA failed: " + err.Error())
@@ -389,14 +387,25 @@ func handleCommandMatch(args []string) {
 	// Check if ssh-agent is running
 	if sshutil.AgentIsRunning() {
 		sshAgent, _ = sshutil.GetAgent()
-		useAgent = true
 
-		if exists, err := sshutil.AgentHasCertificate(sshAgent, host); err == nil && exists {
-			// Agent already holds certificate, therefore do not request a new one
-			return
+		// Check if the agent is gpg-agent, which doesn't support certificates
+		if sshutil.IsGPGAgent() {
+			log.LogWarnTTY("gpg-agent does not support ssh-certificates")
+			useAgent = false
+		} else {
+			useAgent = true
+
+			if exists, err := sshutil.AgentHasCertificate(sshAgent, host); err == nil && exists {
+				log.LogSuccessTTY("Using stored certificate from ssh-agent")
+				// log.LogSuccess("non-tty Using stored certificate from ssh-agent")
+				// Agent already holds certificate, therefore do not request a new one
+				return
+			}
 		}
 	} else {
 		useAgent = false
+	}
+	if useAgent == false {
 		// log.LogWarnTTY("ssh-agent is not running. Certificate will be saved to file.")
 
 		// Check if we already have a valid certificate file
@@ -416,6 +425,7 @@ func handleCommandMatch(args []string) {
 			token = getTokenFromOidcAgent(caClient, host)
 		} else {
 			// oidc-agent not available, prompt for manual token entry
+			log.LogWarnTTY("oidc-agent is not running.")
 			token = promptForManualToken(caClient, host)
 		}
 	}
