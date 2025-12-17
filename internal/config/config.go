@@ -2,11 +2,13 @@ package config
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"strconv"
 	"strings"
 
 	"github.com/lbrocke/oinit/internal/util"
+	"github.com/lbrocke/oinit/pkg/log"
 
 	"golang.org/x/crypto/ssh"
 	"gopkg.in/ini.v1"
@@ -132,15 +134,20 @@ func Load(path string) (Config, error) {
 func loadKeys(conf *Config) error {
 	var uniqPubKeys = make(map[string]ssh.PublicKey)
 	var uniqPrivKeys = make(map[string]interface{})
+	// log.LogTTY("loading keys")
 
 	for i, group := range conf.HostGroups {
+		// log.LogTTY(fmt.Sprintf("loading keys: %d %s", i, group))
+
 		for _, path := range []string{group.PathHostCAPublicKey, group.PathUserCAPublicKey} {
+			// log.LogTTY("->" + path)
 			if _, ok := uniqPubKeys[path]; ok {
 				continue
 			}
 
 			pk, err := parsePublicKeyFile(path)
 			if err != nil {
+				log.LogErrorTTY(fmt.Sprintf("Error: %s", err))
 				return err
 			}
 
@@ -154,9 +161,9 @@ func loadKeys(conf *Config) error {
 
 			pk, err := parsePrivateKeyFile(path)
 			if err != nil {
+				log.LogErrorTTY(fmt.Sprintf("Error: %s", err))
 				return err
 			}
-
 			uniqPrivKeys[path] = pk
 		}
 

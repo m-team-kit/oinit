@@ -119,6 +119,8 @@ func GetOverview(c *gin.Context) {
 //	@Failure		502		{object}	ApiResponseError
 //	@Router			/{host} [get]
 func GetHost(c *gin.Context) {
+	log.SetFlags(0)
+	log.SetOutput(new(customLog))
 	var host UriHost
 
 	if c.ShouldBindUri(&host) != nil {
@@ -144,6 +146,7 @@ func GetHost(c *gin.Context) {
 	if !ok {
 		hostInfo, err := libmotleycue.NewClient(info.URL).GetInfo()
 		if err != nil {
+			log.Printf(fmt.Sprintf("Error connecting to motley_cue: %s", err))
 			Error(c, http.StatusBadGateway, ERR_GATEWAY_DOWN)
 			return
 		}
@@ -228,6 +231,7 @@ func PostHostCertificate(c *gin.Context) {
 	if err != nil || status.State != libmotleycue.StateDeployed {
 		// Either something went wrong with the HTTP request/deployment, the
 		// access token is not valid (e.g. expired) or the user is suspended.
+		log.Printf("Error: User is not authorized: %s", err)
 		Error(c, http.StatusUnauthorized, ERR_UNAUTHORIZED)
 		return
 	}
