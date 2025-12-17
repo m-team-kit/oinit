@@ -228,11 +228,40 @@ func PostHostCertificate(c *gin.Context) {
 	}
 
 	status, err := libmotleycue.NewClient(info.URL).GetUserDeploy(body.Token)
-	if err != nil || status.State != libmotleycue.StateDeployed {
-		// Either something went wrong with the HTTP request/deployment, the
-		// access token is not valid (e.g. expired) or the user is suspended.
-		log.Printf("Error: User is not authorized: %s", err)
-		Error(c, http.StatusUnauthorized, ERR_UNAUTHORIZED)
+	if err != nil {
+		// HTTP error or network issue - pass through the specific error from libmotleycue
+		log.Printf("motley_cue error: %s", err)
+		Error(c, http.StatusUnauthorized, err.Error())
+		return
+	}
+
+	// Handle different user states appropriately
+	switch status.State {
+	case libmotleycue.StateDeployed:
+		// Success case - continue with certificate generation
+	case libmotleycue.StateSuspended:
+		log.Printf("User suspended: %s", status.Message)
+		Error(c, http.StatusForbidden, "User account is suspended: "+status.Message)
+		return
+	case libmotleycue.StateRejected:
+		log.Printf("User rejected: %s", status.Message)
+		Error(c, http.StatusForbidden, "User account is rejected: "+status.Message)
+		return
+	case libmotleycue.StatePending:
+		log.Printf("User pending: %s", status.Message)
+		Error(c, http.StatusAccepted, "User account is pending approval: "+status.Message)
+		return
+	case libmotleycue.StateNotDeployed:
+		log.Printf("User not deployed: %s", status.Message)
+		Error(c, http.StatusForbidden, "User account is not deployed: "+status.Message)
+		return
+	case libmotleycue.StateLimited:
+		log.Printf("User limited: %s", status.Message)
+		Error(c, http.StatusForbidden, "User account has limited access: "+status.Message)
+		return
+	default:
+		log.Printf("Unknown user state '%s': %s", status.State, status.Message)
+		Error(c, http.StatusForbidden, "User account state is undefined: "+status.Message)
 		return
 	}
 

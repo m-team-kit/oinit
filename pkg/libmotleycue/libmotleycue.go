@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"strings"
 )
@@ -21,6 +22,11 @@ const (
 
 type ApiResponseDetail struct {
 	Detail string `json:"detail"`
+}
+
+type FlaatErrorDetail struct {
+	Error            string `json:"error"`
+	ErrorDescription string `json:"error_description"`
 }
 
 type LoginInfo struct {
@@ -76,17 +82,43 @@ type Client struct {
 // reading from responseBody or unmarshalling fails, this function return a
 // custom error messages.
 func parseError(responseBody io.ReadCloser) error {
-	var response ApiResponseDetail
+	// Read the raw body first for logging
+	body, err := io.ReadAll(responseBody)
+	if err != nil {
+		log.Printf("[libmotleycue] Failed to read response body: %s", err)
+		return errors.New(ERR_RESPONSE_BODY)
+	}
 
-	if parseResponse(responseBody, &response) != nil {
+	var response ApiResponseDetail
+	if json.Unmarshal(body, &response) != nil {
+		log.Printf("[libmotleycue] Failed to parse error response as JSON")
 		return errors.New(ERR_RESPONSE_BODY)
 	}
 
 	// Make sure the .Detail field was filled after unmarshalling the JSON data.
 	if response.Detail == "" {
+		log.Printf("[libmotleycue] No detail field in error response, trying flaat format")
+		var flaatResponse FlaatErrorDetail
+		if json.Unmarshal(body, &flaatResponse) == nil {
+			// Successfully parsed flaat error format
+			log.Printf("[libmotleycue] Parsed flaat error: '%s' - '%s'", flaatResponse.Error, flaatResponse.ErrorDescription)
+			if flaatResponse.ErrorDescription != "" {
+				// Use the more descriptive error_description if available
+				return errors.New(fmt.Sprintf("Error: %s - %s", flaatResponse.Error, flaatResponse.ErrorDescription))
+			} else if flaatResponse.Error != "" {
+				// Fall back to the error field
+				return errors.New(flaatResponse.Error)
+			}
+		}
+
+		// Log the full response for debugging
+		log.Printf("[libmotleycue] Full error response: %s", string(body))
+
+		// If we can't parse either format, use default error
 		response.Detail = ERR_UNEXPECTED_ERROR
 	}
 
+	log.Printf("[libmotleycue] Parsed error detail: %s", response.Detail)
 	return errors.New(response.Detail)
 }
 
@@ -156,21 +188,28 @@ func (c Client) getUser(path string, token string) (ApiResponseUserStatus, error
 
 	defer res.Body.Close()
 
+	log.Printf("[libmotleycue] %s %s returned status: %d", req.Method, req.URL.Path, res.StatusCode)
+
 	switch res.StatusCode {
 	case http.StatusOK:
 		return response, parseResponse(res.Body, &response)
 	case http.StatusUnauthorized:
-		fallthrough
+		log.Printf("[libmotleycue] Unauthorized (401) - token may be invalid or expired")
+		return response, parseError(res.Body)
 	case http.StatusForbidden:
-		fallthrough
+		log.Printf("[libmotleycue] Forbidden (403) - user may be suspended or access denied")
+		return response, parseError(res.Body)
 	case http.StatusNotFound:
+		log.Printf("[libmotleycue] Not Found (404) - user may not exist")
 		return response, parseError(res.Body)
 	case http.StatusUnprocessableEntity:
+		log.Printf("[libmotleycue] Unprocessable Entity (422) - request format issue")
 		// In this case, the response body has a different structure and cannot
 		// be parsed easily into a ApiResponseDetail struct, therefore return
 		// custom error.
-		fallthrough
+		return response, fmt.Errorf(ERR_SERVER_RESPONSE_CODE, res.StatusCode)
 	default:
+		log.Printf("[libmotleycue] Unexpected status code: %d", res.StatusCode)
 		return response, fmt.Errorf(ERR_SERVER_RESPONSE_CODE, res.StatusCode)
 	}
 }
