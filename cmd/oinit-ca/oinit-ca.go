@@ -30,7 +30,7 @@ func ConfigMiddleware(config config.Config) gin.HandlerFunc {
 func main() {
 	var configPath = flag.String("c", "", "Path to config file (required)")
 	var listenAddr = flag.String("l", "", "Listen address (host:port), overrides config file")
-	
+
 	flag.Parse()
 
 	if *configPath == "" {
@@ -85,5 +85,6 @@ func main() {
 	docs.SwaggerInfo.Title = SWAGGER_TITLE
 	docs.SwaggerInfo.Description = SWAGGER_DESC
 
+	log.Printf("oinit-ca started")
 	router.Run(addr)
 }
