@@ -261,6 +261,46 @@ func PostHostCertificate(c *gin.Context) {
 	// Parse JWT without verifying it, as the signer key is unknown to the CA.
 	// motley_cue will verify the token instead.
 	token, _, err := new(jwt.Parser).ParseUnverified(body.Token, jwt.MapClaims{})
+
+	// Extract issuer, subject, and username - prefer motley_cue response, fallback to JWT
+	var issuer string = "unknown"
+	var subject string = "unknown"
+	var username string = status.Credentials.SSHUser // default from credentials
+
+	// First try to get from motley_cue response (preferred)
+	if status.Iss != "" {
+		issuer = status.Iss
+	}
+	if status.Sub != "" {
+		subject = status.Sub
+	}
+	if status.Username != "" {
+		username = status.Username
+	}
+
+	// Fallback to JWT claims if motley_cue didn't provide them
+	if err == nil && (issuer == "unknown" || subject == "unknown") {
+		if claims, ok := token.Claims.(jwt.MapClaims); ok {
+			if issuer == "unknown" {
+				if iss, exists := claims["iss"]; exists {
+					if issStr, ok := iss.(string); ok {
+						issuer = issStr
+						log.Printf("Retrieved issuer from JWT: %s", issuer)
+					}
+				}
+			}
+			if subject == "unknown" {
+				if sub, exists := claims["sub"]; exists {
+					if subStr, ok := sub.(string); ok {
+						subject = subStr
+						log.Printf("Retrieved subject from JWT: %s", subject)
+					}
+				}
+			}
+		}
+	}
+
+	log.Printf("Final values - issuer: %s, subject: %s, username: %s", issuer, subject, username)
 	if err == nil { // we had a JWT token, get the certDuration from token lifetime
 		if certDuration <= 0 {
 			if exp, err := token.Claims.GetExpirationTime(); err == nil {
@@ -272,7 +312,7 @@ func PostHostCertificate(c *gin.Context) {
 		log.Printf("Using fallback certDuration: %ds", certDuration)
 	}
 
-	cert := generateUserCertificate(host.Host, pubkey, status.Credentials.SSHUser, uint64(certDuration))
+	cert := generateUserCertificate(host.Host, pubkey, username, subject, issuer, uint64(certDuration))
 
 	signer, err := ssh.NewSignerFromKey(info.UserCAPrivateKey)
 	if err != nil || cert.SignCert(rand.Reader, signer) != nil {

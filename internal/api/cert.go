@@ -13,7 +13,7 @@ const (
 
 // generateUserCertificate generates a new OpenSSH certificate based on the
 // given public key.
-func generateUserCertificate(host string, pubkey ssh.PublicKey, username string, duration uint64) ssh.Certificate {
+func generateUserCertificate(host string, pubkey ssh.PublicKey, username string, subject string, issuer string, duration uint64) ssh.Certificate {
 	validAfter := uint64(time.Now().Unix())
 	validBefore := validAfter + duration
 
@@ -33,7 +33,8 @@ func generateUserCertificate(host string, pubkey ssh.PublicKey, username string,
 		//
 		// Set KeyId to "user@host" which can be used by the client to check
 		// which host this certificate was issued for.
-		KeyId:           PRINCIPAL + "@" + host,
+		// KeyId:           PRINCIPAL + "@" + host,
+		KeyId:           username + " -> " + subject + " @ " + issuer,
 		ValidPrincipals: []string{PRINCIPAL, username},
 		// From OpenSSH PROTOCOL.certkeys:
 		//   "valid after" and "valid before" specify a validity period for the
