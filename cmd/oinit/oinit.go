@@ -46,7 +46,7 @@ const (
 		"\t  - OIDC_AGENT_ACCOUNT:			Name of an oidc-agent account to use\n" +
 		"\t  - OIDC_ISS, or OIDC_ISSUER:		Name of an oidc-issuer to use\n" +
 		"\tFind an access token\n" +
-		"\t  ACCESS_TOKEN, OIDC, OS_ACCESS_TOKEN, OIDC_ACCESS_TOKEN\n"
+		"\t  ACCESS_TOKEN, BEARER_TOKEN, OIDC, OS_ACCESS_TOKEN, OIDC_ACCESS_TOKEN\n"
 )
 
 // handleCommandAdd handles the 'add' command to add a host managed by oinit.
@@ -396,7 +396,7 @@ func handleCommandMatch(args []string) {
 			useAgent = true
 
 			if exists, err := sshutil.AgentHasCertificate(sshAgent, host); err == nil && exists {
-				log.LogSuccessTTY("Using stored certificate from ssh-agent")
+				log.LogDebugTTY("Using stored certificate from ssh-agent")
 				// log.LogSuccess("non-tty Using stored certificate from ssh-agent")
 				// Agent already holds certificate, therefore do not request a new one
 				return
@@ -410,26 +410,67 @@ func handleCommandMatch(args []string) {
 
 		// Check if we already have a valid certificate file
 		if hasValidCertificateFile(host, hostport) {
-			log.LogSuccessTTY("Using existing certificate file")
+			log.LogDebugTTY("Using existing certificate file")
 			return
 		}
 	}
+	// Get the Access Token
 
-	// Try to get token from environment variable
-	token := util.Getenvs("ACCESS_TOKEN", "OIDC", "OS_ACCESS_TOKEN",
+	// ... from environment variable
+	log.LogDebugTTY("Searching token in environment")
+	token := util.Getenvs("ACCESS_TOKEN", "BEARER_TOKEN", "OIDC", "OS_ACCESS_TOKEN",
 		"OIDC_ACCESS_TOKEN", "WATTS_TOKEN", "WATTSON_TOKEN")
 
+	// ... from BEARER_TOKEN_FILE
 	if token == "" {
+		log.LogDebugTTY("Searching token in BEARER_TOKEN_FILE")
+		token_file := util.Getenvs("BEARER_TOKEN_FILE")
+		if token_file != "" {
+			if tokenData, err := os.ReadFile(token_file); err == nil {
+				token = strings.TrimSpace(string(tokenData))
+				log.LogDebugTTY("Using token from file: " + token_file)
+			}
+		}
+	}
+	// ... from $XDG_RUNTIME_DIR/bt_u$ID
+	if token == "" {
+		log.LogDebugTTY("Searching token in XDG_RUNTIME_DIR/bt_$ID")
+		xdgRuntimeDir := os.Getenv("XDG_RUNTIME_DIR")
+		if xdgRuntimeDir != "" {
+			userID := os.Getuid()
+			tokenFile := filepath.Join(xdgRuntimeDir, fmt.Sprintf("bt_u%d", userID))
+			if tokenData, err := os.ReadFile(tokenFile); err == nil {
+				token = strings.TrimSpace(string(tokenData))
+				log.LogDebugTTY("Using token from file: " + tokenFile)
+			}
+		}
+	}
+	if token == "" {
+		// ... from /tmp/bt_u$ID
+		log.LogDebugTTY("Searching token in /tmp/bt_u$ID")
+		userID := os.Getuid()
+		tokenFile := fmt.Sprintf("/tmp/bt_u%d", userID)
+		if tokenData, err := os.ReadFile(tokenFile); err == nil {
+			token = strings.TrimSpace(string(tokenData))
+			log.LogDebugTTY("Using token from file: " + tokenFile)
+		}
+	}
+	// ... from oidc-agent
+	if token == "" {
+		log.LogDebugTTY("Searching token in oidc-agent $OP")
 		if oidc.AgentIsRunning() {
 			// Use oidc-agent to get token.
 			token = getTokenFromOidcAgent(caClient, host)
-		} else {
-			// oidc-agent not available, prompt for manual token entry
-			log.LogWarnTTY("oidc-agent is not running.")
-			token = promptForManualToken(caClient, host)
 		}
 	}
+	// ... manual token entry
+	if token == "" {
+		log.LogDebugTTY("Searching token in manual prompt")
+		log.LogDebugTTY("oidc-agent is not running.")
+		token = promptForManualToken(caClient, host)
+	}
 
+	log.LogDebugTTY("Generating private ssh-cert-key")
 	pubkey, privkey, err := generateEd25519Keys()
 	if err != nil {
 		log.LogFatalTTY("There was an error generating a temporary key pair.")
@@ -447,7 +488,7 @@ func handleCommandMatch(args []string) {
 
 	cert := certPk.(*ssh.Certificate)
 	validUntil := time.Unix(int64(cert.ValidBefore-1), 0)
-	log.LogSuccessTTY(fmt.Sprintf("Received a certificate which is valid until %s", validUntil))
+	log.LogDebugTTY(fmt.Sprintf("Received a certificate which is valid until %s", validUntil))
 
 	if useAgent {
 		if sshAgent.Add(agent.AddedKey{
@@ -458,7 +499,7 @@ func handleCommandMatch(args []string) {
 			log.LogFatalTTY("Cannot add private key and certificate to ssh-agent.")
 		} else {
 			// log.LogSuccessTTY(fmt.Sprintf("Received a certificate which is valid until %s", validUntil))
-			log.LogSuccessTTY("Certificate stored in ssh-agent")
+			log.LogDebugTTY("Certificate stored in ssh-agent")
 		}
 	} else {
 		// Save certificate and private key to files
@@ -489,38 +530,38 @@ func hasValidCertificateFile(host, hostport string) bool {
 
 	// Check if certificate file exists
 	if _, err := os.Stat(certFile); os.IsNotExist(err) {
-		log.LogInfoTTY("Certificate file does not exist")
+		log.LogDebugTTY("Certificate file does not exist")
 		return false
 	}
 	// Check if key file exists
 	if _, err := os.Stat(keyFile); os.IsNotExist(err) {
-		log.LogInfoTTY("Certificate key file does not exist")
+		log.LogDebugTTY("Certificate key file does not exist")
 		return false
 	}
 
 	// Read and parse the certificate file
 	certData, err := os.ReadFile(certFile)
 	if err != nil {
-		log.LogInfoTTY("Can not read certificate file")
+		log.LogDebugTTY("Can not read certificate file")
 		return false
 	}
 
 	certPk, _, _, _, err := ssh.ParseAuthorizedKey(certData)
 	if err != nil {
-		log.LogInfoTTY("Found certificate but can not parse it")
+		log.LogDebugTTY("Found certificate but can not parse it")
 		return false
 	}
 
 	cert, ok := certPk.(*ssh.Certificate)
 	if !ok {
-		log.LogInfoTTY("Found cert, but it's not ok")
+		log.LogDebugTTY("Found cert, but it's not ok")
 		return false
 	}
 
 	// Check if certificate is still valid (not expired)
 	now := time.Now().Unix()
 	if uint64(now) >= cert.ValidBefore {
-		log.LogInfoTTY("Certificate Expired")
+		log.LogDebugTTY("Certificate Expired")
 		return false // Certificate has expired
 	}
 
@@ -565,8 +606,7 @@ func saveCertificateToFiles(host string, hostport string, cert *ssh.Certificate,
 		return err
 	}
 
-	// log.LogInfoTTY(fmt.Sprintf("Private key saved to: %s", keyFile))
-	log.LogSuccessTTY(fmt.Sprintf("Certificate saved to file: %s", certFile))
+	log.LogDebugTTY(fmt.Sprintf("Certificate saved to file: %s", certFile))
 
 	return nil
 }

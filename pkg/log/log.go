@@ -92,6 +92,18 @@ func LogInfoTTY(msg string) {
 	log(msg, COLOR_BLUE, SYMBOL_INFO, true, true)
 }
 
+func LogDebug(msg string) {
+	if os.Getenv("OINIT_DEBUG") != "" {
+		log(msg, COLOR_BLUE, SYMBOL_INFO, false, true)
+	}
+}
+
+func LogDebugTTY(msg string) {
+	if os.Getenv("OINIT_DEBUG") != "" {
+		log(msg, COLOR_BLUE, SYMBOL_INFO, true, true)
+	}
+}
+
 func Log(msg string) {
 	log(msg, COLOR_RESET, SYMBOL_NONE, false, true)
 }
