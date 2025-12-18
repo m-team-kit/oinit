@@ -146,7 +146,7 @@ func GetHost(c *gin.Context) {
 	if !ok {
 		hostInfo, err := libmotleycue.NewClient(info.URL).GetInfo()
 		if err != nil {
-			log.Printf(fmt.Sprintf("Error connecting to motley_cue: %s", err))
+			log.Printf("Error connecting to motley_cue: %s", err)
 			Error(c, http.StatusBadGateway, ERR_GATEWAY_DOWN)
 			return
 		}

@@ -405,7 +405,7 @@ func handleCommandMatch(args []string) {
 	} else {
 		useAgent = false
 	}
-	if useAgent == false {
+	if !useAgent {
 		// log.LogWarnTTY("ssh-agent is not running. Certificate will be saved to file.")
 
 		// Check if we already have a valid certificate file

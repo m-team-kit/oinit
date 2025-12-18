@@ -104,7 +104,7 @@ func parseError(responseBody io.ReadCloser) error {
 			log.Printf("[libmotleycue] Parsed flaat error: '%s' - '%s'", flaatResponse.Error, flaatResponse.ErrorDescription)
 			if flaatResponse.ErrorDescription != "" {
 				// Use the more descriptive error_description if available
-				return errors.New(fmt.Sprintf("Error: %s - %s", flaatResponse.Error, flaatResponse.ErrorDescription))
+				return fmt.Errorf("Error: %s - %s", flaatResponse.Error, flaatResponse.ErrorDescription)
 			} else if flaatResponse.Error != "" {
 				// Fall back to the error field
 				return errors.New(flaatResponse.Error)
