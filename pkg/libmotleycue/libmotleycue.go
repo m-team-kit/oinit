@@ -97,7 +97,7 @@ func parseError(responseBody io.ReadCloser) error {
 
 	// Make sure the .Detail field was filled after unmarshalling the JSON data.
 	if response.Detail == "" {
-		log.Printf("[libmotleycue] No detail field in error response, trying flaat format")
+		// log.Printf("[libmotleycue] No detail field in error response, trying flaat format")
 		var flaatResponse FlaatErrorDetail
 		if json.Unmarshal(body, &flaatResponse) == nil {
 			// Successfully parsed flaat error format

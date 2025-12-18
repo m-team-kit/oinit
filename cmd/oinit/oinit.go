@@ -390,7 +390,7 @@ func handleCommandMatch(args []string) {
 
 		// Check if the agent is gpg-agent, which doesn't support certificates
 		if sshutil.IsGPGAgent() {
-			log.LogWarnTTY("gpg-agent does not support ssh-certificates")
+			// log.LogWarnTTY("gpg-agent does not support ssh-certificates")
 			useAgent = false
 		} else {
 			useAgent = true
