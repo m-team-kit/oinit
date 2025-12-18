@@ -178,7 +178,7 @@ package:
     [localhost]
     localhost = http://localhost:8080" >> /etc/oinit-ca/config.ini
 
-    /usr/sbin/oinit-ca 127.0.0.1:8081 /etc/oinit-ca/config.ini > /dev/null &
+    /usr/sbin/oinit-ca -l 127.0.0.1:8081 -c /etc/oinit-ca/config.ini > /dev/null &
 
     echo "Starting ssh-agent..."
     eval `ssh-agent`
