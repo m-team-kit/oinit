@@ -219,14 +219,6 @@ func PostHostCertificate(c *gin.Context) {
 		return
 	}
 
-	// Parse JWT without verifying it, as the signer key is unknown to the CA.
-	// motley_cue will verify the token instead.
-	token, _, err := new(jwt.Parser).ParseUnverified(body.Token, jwt.MapClaims{})
-	if err != nil {
-		Error(c, http.StatusBadRequest, ERR_BAD_BODY)
-		return
-	}
-
 	status, err := libmotleycue.NewClient(info.URL).GetUserDeploy(body.Token)
 	if err != nil {
 		// HTTP error or network issue - pass through the specific error from libmotleycue
@@ -266,12 +258,18 @@ func PostHostCertificate(c *gin.Context) {
 	}
 
 	certDuration := info.CertDuration
-	// If CertDuration is set to 0 or negative number, use the expiry date of the
-	// given token as "valid before" date.
-	if certDuration <= 0 {
-		if exp, err := token.Claims.GetExpirationTime(); err == nil {
-			certDuration = int(time.Until(exp.Time).Seconds())
+	// Parse JWT without verifying it, as the signer key is unknown to the CA.
+	// motley_cue will verify the token instead.
+	token, _, err := new(jwt.Parser).ParseUnverified(body.Token, jwt.MapClaims{})
+	if err == nil { // we had a JWT token, get the certDuration from token lifetime
+		if certDuration <= 0 {
+			if exp, err := token.Claims.GetExpirationTime(); err == nil {
+				certDuration = int(time.Until(exp.Time).Seconds())
+			}
 		}
+	} else {
+		certDuration = info.CertValidityFallback
+		log.Printf("Using fallback certDuration: %ds", certDuration)
 	}
 
 	cert := generateUserCertificate(host.Host, pubkey, status.Credentials.SSHUser, uint64(certDuration))

@@ -24,6 +24,7 @@ type DefaultOptions struct {
 	PathUserCAPrivateKey string `ini:"user-ca-privkey"`
 	PathUserCAPublicKey  string `ini:"user-ca-pubkey"`
 	CertValidity         string `ini:"cert-validity"` // allows non-int values, parsed manually
+	CertValidityFallback int    `ini:"cert-validity-fallback"`
 	CacheDuration        int    `ini:"cache-duration"`
 	ListenAddress        string `ini:"listen-address"`
 }
@@ -50,10 +51,11 @@ type Config struct {
 
 // HostInfo is returned from the GetInfo function
 type HostInfo struct {
-	Name          string
-	URL           string
-	CertDuration  int
-	CacheDuration int
+	Name                 string
+	URL                  string
+	CertDuration         int
+	CertValidityFallback int
+	CacheDuration        int
 	Keys
 }
 
@@ -83,6 +85,7 @@ func Load(path string) (Config, error) {
 			PathUserCAPrivateKey: defOptions.PathUserCAPrivateKey,
 			PathUserCAPublicKey:  defOptions.PathUserCAPublicKey,
 			CertValidity:         defOptions.CertValidity,
+			CertValidityFallback: defOptions.CertValidityFallback,
 			CacheDuration:        defOptions.CacheDuration,
 			ListenAddress:        defOptions.ListenAddress,
 		}
@@ -101,7 +104,8 @@ func Load(path string) (Config, error) {
 		for key, val := range hostgroup.KeysHash() {
 			if key == "host-ca-privkey" || key == "host-ca-pubkey" ||
 				key == "user-ca-privkey" || key == "user-ca-pubkey" ||
-				key == "cert-validity" || key == "cache-duration" ||
+				key == "cert-validity" || key == "cert-validity-fallback" ||
+				key == "cache-duration" ||
 				key == "listen-address" {
 				continue
 			}
@@ -240,11 +244,12 @@ func (c Config) GetInfo(host string) (HostInfo, error) {
 
 			if util.MatchesHost(host, "", hostName, "") {
 				return HostInfo{
-					Name:          hostName,
-					URL:           caURL,
-					CertDuration:  hostGroup.CertDuration,
-					CacheDuration: hostGroup.CacheDuration,
-					Keys:          hostGroup.Keys,
+					Name:                 hostName,
+					URL:                  caURL,
+					CertDuration:         hostGroup.CertDuration,
+					CertValidityFallback: hostGroup.CertValidityFallback,
+					CacheDuration:        hostGroup.CacheDuration,
+					Keys:                 hostGroup.Keys,
 				}, nil
 			}
 		}
