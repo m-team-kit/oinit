@@ -34,7 +34,7 @@ func generateUserCertificate(host string, pubkey ssh.PublicKey, username string,
 		// Set KeyId to "user@host" which can be used by the client to check
 		// which host this certificate was issued for.
 		// KeyId:           PRINCIPAL + "@" + host,
-		KeyId:           username + " -> " + subject + " @ " + issuer,
+		KeyId:           subject + " @ " + issuer + " -> " + username,
 		ValidPrincipals: []string{PRINCIPAL, username},
 		// From OpenSSH PROTOCOL.certkeys:
 		//   "valid after" and "valid before" specify a validity period for the

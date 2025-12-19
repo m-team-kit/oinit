@@ -15,9 +15,11 @@ func TestGenerateUserCertificate(t *testing.T) {
 	pubkey, _ := ssh.NewPublicKey(pk)
 
 	username := "testuser"
+	subject := "test-subject-123"
+	issuer := "https://accounts.example.com"
 	duration := uint64(3600)
 
-	certificate := generateUserCertificate(host, pubkey, username, duration)
+	certificate := generateUserCertificate(host, pubkey, username, subject, issuer, duration)
 
 	if certificate.Serial != 0 {
 		t.Error("Expected Serial to be 0")
@@ -27,7 +29,7 @@ func TestGenerateUserCertificate(t *testing.T) {
 		t.Error("Expected CertType to be ssh.UserCert")
 	}
 
-	expectedKeyId := PRINCIPAL + "@" + host
+	expectedKeyId := subject + " @ " + issuer + " -> " + username
 	if certificate.KeyId != expectedKeyId {
 		t.Errorf("Expected KeyId to be %s, but got %s", expectedKeyId, certificate.KeyId)
 	}
