@@ -88,6 +88,21 @@ func GetIndex(c *gin.Context) {
 	})
 }
 
+// GetHealth is the handler for GET /health
+//
+//	@Summary		Health check endpoint
+//	@Description	Returns health status for Docker Compose health checks
+//	@Produce		json
+//	@Success		200	{object}	gin.H
+//	@Router			/health [get]
+func GetHealth(c *gin.Context) {
+	c.JSON(http.StatusOK, gin.H{
+		"status":  "healthy",
+		"service": "oinit-ca",
+		"version": API_VERSION,
+	})
+}
+
 func unknownHostError(h string) string {
 	return fmt.Sprintf("Host '%s' is not managed by this CA.", h)
 }

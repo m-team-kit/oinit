@@ -56,6 +56,9 @@ func main() {
 	router := gin.Default()
 	router.Use(ConfigMiddleware(cfg))
 
+	// Health check endpoint for Docker Compose
+	router.GET("/health", api.GetHealth)
+
 	// Root overview for easier discovery
 	router.GET("/", api.GetOverview)
 	router.GET("/oinit/", api.GetOverview)
