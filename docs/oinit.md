@@ -60,63 +60,171 @@ Lists all hosts currently managed by oinit.
 
 Internal command used by SSH via ProxyCommand to obtain certificates. Not typically run manually.
 
-## DNS CA Discovery
+## CA Discovery
 
-When using `oinit add <host>` without specifying a CA URL, oinit automatically discovers the Certificate Authority via DNS TXT records.
+When using `oinit add <host>` without specifying a CA URL, oinit automatically discovers the Certificate Authority using a two-phase discovery process:
 
-### DNS Record Format
+1. **DNS TXT Record Discovery** (preferred)
+2. **HTTPS Endpoint Discovery** (fallback)
 
-oinit looks for TXT records with the prefix `_oinit-ca.` containing the CA URL:
+### Phase 1: DNS TXT Record Discovery
+
+oinit looks for TXT records with the prefix `_oinit-ca.` containing the CA URL.
+
+#### DNS Record Format
 
 ```dns
 _oinit-ca.login.example.com.    IN    TXT    "https://ca.example.com:8443"
 ```
 
-### Lookup Process
+#### Two-Level Lookup Strategy
 
-For a given SSH host (e.g., `login.example.com`), oinit performs the following DNS lookups:
+For any given SSH hostname, oinit performs **exactly two DNS lookups**:
 
-1. **Full hostname**: `_oinit-ca.login.example.com`
-2. **Parent domain** (if first lookup fails): `_oinit-ca.example.com`
+1. **Full hostname lookup**: Query `_oinit-ca.<hostname>`
+2. **Parent domain lookup**: Query `_oinit-ca.<parent-domain>` (one subdomain level up)
 
-### Wildcard Support
+This two-level strategy allows both host-specific CA assignments and organization-wide defaults.
 
-Wildcard domains are supported. For a wildcard host like `*.login.example.com`, oinit will:
+#### Lookup Examples
 
-1. Strip the wildcard: `login.example.com`
-2. Lookup: `_oinit-ca.login.example.com`  
-3. Fallback: `_oinit-ca.example.com`
-
-### Examples
-
-**Direct host lookup:**
+**Example 1: Simple hostname**
 ```bash
-# For host: login.example.com
-# DNS query: _oinit-ca.login.example.com
-# Fallback: _oinit-ca.example.com
 oinit add login.example.com
+
+# Lookup sequence:
+# 1. _oinit-ca.login.example.com     (host-specific)
+# 2. _oinit-ca.example.com           (domain-wide fallback)
 ```
 
-**Wildcard host lookup:**
+**Example 2: Nested subdomain**
 ```bash
-# For host: *.compute.example.com  
-# DNS query: _oinit-ca.compute.example.com
-# Fallback: _oinit-ca.example.com
-oinit add "*.compute.example.com"
+oinit add node1.cluster.example.com
+
+# Lookup sequence:
+# 1. _oinit-ca.node1.cluster.example.com     (host-specific)
+# 2. _oinit-ca.cluster.example.com           (one level up)
 ```
 
-**DNS record setup example:**
-```dns
-; Direct host record
-_oinit-ca.login.example.com.        IN  TXT  "https://ca.example.com:8443"
+**Example 3: Wildcard hostname**
+```bash
+oinit add "*.compute.example.com"
 
-; Domain-wide record (fallback for all subdomains)
+# Wildcard prefix stripped first: compute.example.com
+# Lookup sequence:
+# 1. _oinit-ca.compute.example.com   (host-specific)
+# 2. _oinit-ca.example.com           (domain-wide fallback)
+```
+
+#### DNS Record Setup Examples
+
+**Host-specific CA assignment:**
+```dns
+; Specific host uses dedicated CA
+_oinit-ca.secure.example.com.       IN  TXT  "https://secure-ca.example.com:8443"
+
+; Other hosts use organization CA
 _oinit-ca.example.com.              IN  TXT  "https://ca.example.com:8443"
 ```
 
+**Department-level CA assignment:**
+```dns
+; Finance department has dedicated CA
+_oinit-ca.finance.example.com.      IN  TXT  "https://finance-ca.example.com:8443"
+
+; Engineering uses different CA
+_oinit-ca.eng.example.com.          IN  TXT  "https://eng-ca.example.com:8443"
+
+; Organization-wide fallback
+_oinit-ca.example.com.              IN  TXT  "https://ca.example.com:8443"
+```
+
+### Phase 2: HTTPS Endpoint Discovery (Fallback)
+
+If both DNS TXT lookups fail, oinit attempts to discover the CA by probing HTTPS endpoints directly.
+
+#### Discovery Process
+
+oinit makes HTTPS requests to the `/oinit/` endpoint on port 443 for:
+
+1. **Full hostname**: `https://<hostname>:443/oinit/`
+2. **Parent domain**: `https://<parent-domain>:443/oinit/` (one level up)
+
+If either endpoint responds with a valid oinit-ca server response, that hostname is used as the CA base URL.
+
+#### HTTPS Probe Examples
+
+**Example 1: CA running on SSH host itself**
+```bash
+oinit add login.example.com
+
+# After DNS TXT lookups fail:
+# 1. HTTPS probe: https://login.example.com:443/oinit/
+#    ✓ SUCCESS - CA is running on login.example.com itself
+#    → Use: https://login.example.com
+```
+
+**Example 2: CA running on parent domain**
+```bash
+oinit add node1.cluster.example.com
+
+# After DNS TXT lookups fail:
+# 1. HTTPS probe: https://node1.cluster.example.com:443/oinit/
+#    ✗ FAIL - not an oinit-ca server
+# 2. HTTPS probe: https://cluster.example.com:443/oinit/
+#    ✓ SUCCESS - CA found on parent domain
+#    → Use: https://cluster.example.com
+```
+
+#### When to Use HTTPS Discovery
+
+HTTPS discovery is useful when:
+- DNS TXT records cannot be configured (limited DNS access)
+- Rapid prototyping or development environments
+- The CA server runs on the SSH host itself
+- Small deployments where DNS management is overhead
+
+**Note:** DNS TXT records are still the **recommended** approach for production because:
+- Explicit CA assignment is clearer and more maintainable
+- DNS records are cached by resolvers (better performance)
+- Allows CA and SSH hosts to be completely separate
+- HTTPS probes add latency and require network connectivity
+
+### Complete Discovery Flow
+
+For any hostname, the full discovery sequence is:
+
+```
+Input: login.example.com
+
+1. DNS TXT: _oinit-ca.login.example.com
+   ├─ Found? → Return CA URL ✓
+   └─ Not found → Continue
+
+2. DNS TXT: _oinit-ca.example.com
+   ├─ Found? → Return CA URL ✓
+   └─ Not found → Continue
+
+3. HTTPS: https://login.example.com:443/oinit/
+   ├─ Valid response? → Return https://login.example.com ✓
+   └─ Failed → Continue
+
+4. HTTPS: https://example.com:443/oinit/
+   ├─ Valid response? → Return https://example.com ✓
+   └─ Failed → Error: CA not found ✗
+```
+
+### Caching
+
+Discovery results are cached to minimize overhead:
+- **Successful lookups**: Cached for 5 minutes
+- **Failed lookups**: Cached for 1 minute
+
+Caching applies to the entire discovery process, not individual methods.
+
 ### Error Handling
 
-If DNS lookup fails:
+If all discovery methods fail:
 ```
 The CA for this host could not be determined from DNS.
 You can manually specify the CA by running:
