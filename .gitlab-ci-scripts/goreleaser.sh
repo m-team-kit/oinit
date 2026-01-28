@@ -16,6 +16,9 @@ GORELEASER_OPTIONS=""
 echo "PWD: ${PWD}"
 echo "git status:"
 git status
+echo -e "---------------- files -----------------"
+ls -la
+echo -e "--------------- /files -----------------"
 echo "Running:"
 echo "    goreleaser/goreleaser release --skip publish --skip docker --verbose  ${GORELEASER_OPTIONS}"
 
