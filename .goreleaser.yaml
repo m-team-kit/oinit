@@ -57,7 +57,7 @@ builds:
     mod_timestamp: "{{.CommitTimestamp}}"
 
 archives:
-  - format: tar.gz
+  - formats: ["tar.gz"]
     name_template: >-
       {{ .ProjectName }}_
       {{- title .Os }}_
@@ -82,7 +82,7 @@ changelog:
 nfpms:
   - id: oinit
     package_name: oinit
-    builds:
+    ids:
       - oinit
     homepage: https://codebase.helmholtz.cloud/m-team/oidc/ssh/oinit/
     maintainer: Marcus Hardt <hardt@kit.edu>
