@@ -70,7 +70,7 @@ func LookupCA(host string) (string, error) {
 	records, err := net.LookupTXT(TXT_PREFIX + lookup1)
 	if err == nil && len(records) > 0 {
 		if ca, validateErr := validateAndSelectCA(records, TXT_PREFIX+lookup1); validateErr == nil {
-			log.LogInfo(fmt.Sprintf("Determined CA: %s (via DNS TXT)", ca))
+			log.LogInfo(fmt.Sprintf("Found CA: %s (via DNS TXT)", ca))
 			log.LogDebug(fmt.Sprintf("Found CA via DNS TXT record at %s: %s", TXT_PREFIX+lookup1, ca))
 			caCache.Set(host, ca, time.Duration(CACHE_DURATION))
 			return ca, nil
@@ -93,7 +93,7 @@ func LookupCA(host string) (string, error) {
 		records, err = net.LookupTXT(TXT_PREFIX + lookup2)
 		if err == nil && len(records) > 0 {
 			if ca, validateErr := validateAndSelectCA(records, TXT_PREFIX+lookup2); validateErr == nil {
-				log.LogInfo(fmt.Sprintf("Determined CA: %s (via DNS TXT)", ca))
+				log.LogInfo(fmt.Sprintf("Found CA: %s (via DNS TXT)", ca))
 				log.LogDebug(fmt.Sprintf("Found CA via DNS TXT record at %s: %s", TXT_PREFIX+lookup2, ca))
 				caCache.Set(host, ca, time.Duration(CACHE_DURATION))
 				return ca, nil
@@ -112,7 +112,7 @@ func LookupCA(host string) (string, error) {
 
 	// Try HTTPS probe on full hostname
 	if ca, err := probeHTTPSEndpoint(lookup1); err == nil {
-		log.LogInfo(fmt.Sprintf("Determined CA: %s (via HTTPS probe)", ca))
+		log.LogInfo(fmt.Sprintf("Found CA: %s (via HTTPS probe)", ca))
 		log.LogDebug(fmt.Sprintf("Found CA via HTTPS probe at %s: %s", lookup1, ca))
 		caCache.Set(host, ca, time.Duration(CACHE_DURATION))
 		return ca, nil
@@ -123,7 +123,7 @@ func LookupCA(host string) (string, error) {
 	// Try HTTPS probe on parent domain (if exists)
 	if hasParent {
 		if ca, err := probeHTTPSEndpoint(lookup2); err == nil {
-			log.LogInfo(fmt.Sprintf("Determined CA: %s (via HTTPS probe)", ca))
+			log.LogInfo(fmt.Sprintf("Found CA: %s (via HTTPS probe)", ca))
 			log.LogDebug(fmt.Sprintf("Found CA via HTTPS probe at %s: %s", lookup2, ca))
 			caCache.Set(host, ca, time.Duration(CACHE_DURATION))
 			return ca, nil
