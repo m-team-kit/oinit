@@ -35,7 +35,7 @@ const (
 	COMMAND_MATCH  = "match"
 
 	USAGE = "oinit-v1.2.0\nUsage:\n" +
-		"\toinit add    <ssh-host>[:port]\tAdd a host managed by oinit (CA found via DNS).\n" +
+		"\toinit add    <ssh-host>[:port]\tAdd a host managed by oinit (CA found automatically (DNS or by assumptions).\n" +
 		"\toinit add    <ssh-host>[:port]  [http[s]://<ca-host>[:<port>]]\n" +
 		"                                \tAdd a host managed by oinit, with a specific CA.\n" +
 		"\toinit del    <ssh-host>[:port]\tRemove oinit management for a host.\n" +
@@ -82,14 +82,14 @@ func handleCommandAdd(args []string) {
 		return
 	}
 
-	// Determine CA from DNS if not given on command line.
+	// Determine CA automatically if not given on command line.
 	var ca string
 	if len(args) >= 2 {
 		ca = args[1]
 	} else {
 		detected, err := dnsutil.LookupCA(host)
 		if err != nil {
-			log.LogWarn("The CA for this host could not be determined from DNS.")
+			log.LogWarn("The CA for this host could not be determined automatically.")
 			log.LogWarn("You can manually specify the CA by running:")
 			log.LogWarn("")
 			log.LogWarn("\toinit add " + args[0] + " [ca]")
@@ -97,7 +97,6 @@ func handleCommandAdd(args []string) {
 		}
 
 		ca = detected
-		log.LogInfo("Determined CA from DNS: " + ca)
 	}
 
 	// ensure we have a $HOME/.ssh folder (see issue #3 on oinit codebase)
