@@ -66,28 +66,47 @@ func main() {
 		log.LogFatal(ERR_INTERNAL)
 	}
 
-	// Allow user to switch to himself/herself. This is necessary because
-	// issued certificates also contain the target username as principal,
-	// allowing the user to connect as himself/herself directly without using
-	// the oinit user.
-	// Note that it requires the user to have set a password (which isn't set
-	// by motley_cue by default) and the user still has to enter his/her own
-	// password, because 'su' requires this.
-	if targetUid != curUid {
-		// In all other cases, make sure the program is executed by the oinit
-		// user. This is not strictly necessary, because the 'su' command would
-		// just prompt for a password in case the user executing this program
-		// isn't oinit.
+	// If the current user is already the target user, exec their shell
+	// directly instead of going through su (which would prompt for a
+	// password). This happens when the certificate contains the target
+	// username as principal, allowing the user to connect as himself/herself
+	// directly without going through the oinit user.
+	if targetUid == curUid {
+		shell := os.Getenv("SHELL")
+		if shell == "" {
+			shell = "/bin/sh"
+		}
 
-		oinitUid, err := getUid(OINIT_USER)
+		shellPath, err := exec.LookPath(shell)
 		if err != nil {
 			log.LogFatal(ERR_INTERNAL)
 		}
 
-		if curUid != oinitUid {
-			log.LogError("3")
-			log.LogFatal(ERR_NOT_ALLOWED)
+		if sshCmd, ok := os.LookupEnv("SSH_ORIGINAL_COMMAND"); ok {
+			if err := syscall.Exec(shellPath, []string{shell, "-c", sshCmd}, os.Environ()); err != nil {
+				os.Exit(1)
+			}
+		} else {
+			// Use "-<shell>" as argv[0] to start a login shell, matching
+			// the convention used by login(1) and su(1).
+			if err := syscall.Exec(shellPath, []string{"-" + shell}, os.Environ()); err != nil {
+				os.Exit(1)
+			}
 		}
+	}
+
+	// In all other cases, make sure the program is executed by the oinit
+	// user. This is not strictly necessary, because the 'su' command would
+	// just prompt for a password in case the user executing this program
+	// isn't oinit.
+	oinitUid, err := getUid(OINIT_USER)
+	if err != nil {
+		log.LogFatal(ERR_INTERNAL)
+	}
+
+	if curUid != oinitUid {
+		log.LogError("3")
+		log.LogFatal(ERR_NOT_ALLOWED)
 	}
 
 	// syscall.Exec() requires full path
