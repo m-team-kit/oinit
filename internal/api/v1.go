@@ -342,18 +342,20 @@ func PostHostCertificate(c *gin.Context) {
 	}
 
 	// Resolve principals from config template, replacing $provisioned-user.
-	// The "oinit" service user is always included as a principal.
-	principals := []string{"oinit"}
+	// The "oinit" service user is always included as a certificate principal
+	// but is not part of $cert-principals (used in force-command).
+	var configPrincipals []string
 	for _, p := range strings.Fields(info.CertPrincipals) {
 		resolved := strings.ReplaceAll(p, "$provisioned-user", username)
 		if resolved != "oinit" {
-			principals = append(principals, resolved)
+			configPrincipals = append(configPrincipals, resolved)
 		}
 	}
+	principals := append([]string{"oinit"}, configPrincipals...)
 
-	// Resolve force-command from config template
-	resolvedPrincipals := strings.Join(principals, " ")
-	forceCommand := strings.ReplaceAll(info.ForceCommand, "$cert-principals", resolvedPrincipals)
+	// Resolve force-command from config template.
+	// $cert-principals expands to the configured principals (without "oinit").
+	forceCommand := strings.ReplaceAll(info.ForceCommand, "$cert-principals", strings.Join(configPrincipals, " "))
 	forceCommand = strings.ReplaceAll(forceCommand, "$provisioned-user", username)
 
 	cert := generateUserCertificate(host.Host, pubkey, username, subject, issuer, uint64(certDuration), principals, forceCommand)
