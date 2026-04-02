@@ -30,7 +30,7 @@ func main() {
 	command := os.Args[2]
 	argv := strings.Fields(command)
 
-	if !strings.HasPrefix(command, FORCE_COMMAND) || len(argv) != 2 {
+	if !strings.HasPrefix(command, FORCE_COMMAND) || len(argv) < 2 {
 		log.LogFatal(ERR_PROHIBITED)
 	}
 

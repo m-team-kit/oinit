@@ -18,8 +18,10 @@ func TestGenerateUserCertificate(t *testing.T) {
 	subject := "test-subject-123"
 	issuer := "https://accounts.example.com"
 	duration := uint64(3600)
+	principals := []string{"oinit", username}
+	forceCommand := "oinit-switch " + username
 
-	certificate := generateUserCertificate(host, pubkey, username, subject, issuer, duration)
+	certificate := generateUserCertificate(host, pubkey, username, subject, issuer, duration, principals, forceCommand)
 
 	if certificate.Serial != 0 {
 		t.Error("Expected Serial to be 0")
@@ -34,9 +36,8 @@ func TestGenerateUserCertificate(t *testing.T) {
 		t.Errorf("Expected KeyId to be %s, but got %s", expectedKeyId, certificate.KeyId)
 	}
 
-	expectedValidPrincipals := []string{PRINCIPAL, username}
-	if !stringSlicesEqual(certificate.ValidPrincipals, expectedValidPrincipals) {
-		t.Errorf("Expected ValidPrincipals to be %v, but got %v", expectedValidPrincipals, certificate.ValidPrincipals)
+	if !stringSlicesEqual(certificate.ValidPrincipals, principals) {
+		t.Errorf("Expected ValidPrincipals to be %v, but got %v", principals, certificate.ValidPrincipals)
 	}
 
 	currentTime := uint64(time.Now().Unix())
@@ -44,9 +45,8 @@ func TestGenerateUserCertificate(t *testing.T) {
 		t.Error("Invalid certificate validity period")
 	}
 
-	expectedForceCommand := FORCE_COMMAND + " " + username
-	if certificate.Permissions.CriticalOptions["force-command"] != expectedForceCommand {
-		t.Errorf("Expected force-command to be %s, but got %s", expectedForceCommand, certificate.Permissions.CriticalOptions["force-command"])
+	if certificate.Permissions.CriticalOptions["force-command"] != forceCommand {
+		t.Errorf("Expected force-command to be %s, but got %s", forceCommand, certificate.Permissions.CriticalOptions["force-command"])
 	}
 
 	if _, ok := certificate.Permissions.Extensions["permit-agent-forwarding"]; !ok {
@@ -55,6 +55,21 @@ func TestGenerateUserCertificate(t *testing.T) {
 
 	if _, ok := certificate.Permissions.Extensions["permit-pty"]; !ok {
 		t.Error("Expected permit-pty extension to be present")
+	}
+}
+
+func TestGenerateUserCertificateNoForceCommand(t *testing.T) {
+	pk, _, _ := ed25519.GenerateKey(nil)
+	pubkey, _ := ssh.NewPublicKey(pk)
+
+	certificate := generateUserCertificate("example.com", pubkey, "git", "sub", "iss", 3600, []string{"git"}, "")
+
+	if _, ok := certificate.Permissions.CriticalOptions["force-command"]; ok {
+		t.Error("Expected no force-command when forceCommand is empty")
+	}
+
+	if !stringSlicesEqual(certificate.ValidPrincipals, []string{"git"}) {
+		t.Errorf("Expected ValidPrincipals to be [git], but got %v", certificate.ValidPrincipals)
 	}
 }
 

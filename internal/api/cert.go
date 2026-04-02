@@ -6,16 +6,18 @@ import (
 	"golang.org/x/crypto/ssh"
 )
 
-const (
-	PRINCIPAL     = "oinit"
-	FORCE_COMMAND = "oinit-switch"
-)
-
 // generateUserCertificate generates a new OpenSSH certificate based on the
-// given public key.
-func generateUserCertificate(host string, pubkey ssh.PublicKey, username string, subject string, issuer string, duration uint64) ssh.Certificate {
+// given public key. The principals and forceCommand are configurable per
+// host group. If forceCommand is empty, no force-command critical option
+// is set.
+func generateUserCertificate(host string, pubkey ssh.PublicKey, username string, subject string, issuer string, duration uint64, principals []string, forceCommand string) ssh.Certificate {
 	validAfter := uint64(time.Now().Unix())
 	validBefore := validAfter + duration
+
+	criticalOptions := map[string]string{}
+	if forceCommand != "" {
+		criticalOptions["force-command"] = forceCommand
+	}
 
 	return ssh.Certificate{
 		Key: pubkey,
@@ -33,9 +35,8 @@ func generateUserCertificate(host string, pubkey ssh.PublicKey, username string,
 		//
 		// Set KeyId to "user@host" which can be used by the client to check
 		// which host this certificate was issued for.
-		// KeyId:           PRINCIPAL + "@" + host,
 		KeyId:           subject + " @ " + issuer + " -> " + username,
-		ValidPrincipals: []string{PRINCIPAL, username},
+		ValidPrincipals: principals,
 		// From OpenSSH PROTOCOL.certkeys:
 		//   "valid after" and "valid before" specify a validity period for the
 		//   certificate. Each represents a time in seconds since 1970-01-01
@@ -44,9 +45,7 @@ func generateUserCertificate(host string, pubkey ssh.PublicKey, username string,
 		ValidAfter:  validAfter - 10, // account for slight clock differences
 		ValidBefore: validBefore,
 		Permissions: ssh.Permissions{
-			CriticalOptions: map[string]string{
-				"force-command": FORCE_COMMAND + " " + username,
-			},
+			CriticalOptions: criticalOptions,
 			Extensions: map[string]string{
 				"permit-agent-forwarding": "",
 				"permit-pty":              "",

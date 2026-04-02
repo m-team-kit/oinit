@@ -27,6 +27,10 @@ type DefaultOptions struct {
 	CertValidityFallback int    `ini:"cert-validity-fallback"`
 	CacheDuration        int    `ini:"cache-duration"`
 	ListenAddress        string `ini:"listen-address"`
+	CertPrincipals       string `ini:"cert-principals"`
+	ProvisionUser        string `ini:"provision-user"`
+	DefaultUser          string `ini:"default-user"`
+	ForceCommand         string `ini:"force-command"`
 }
 
 type Keys struct {
@@ -39,9 +43,10 @@ type Keys struct {
 type HostGroup struct {
 	DefaultOptions
 	Keys
-	CertDuration int
-	Name         string
-	Hosts        map[string]string
+	CertDuration     int
+	Name             string
+	Hosts            map[string]string
+	ProvisionUserVal bool
 }
 
 type Config struct {
@@ -56,6 +61,10 @@ type HostInfo struct {
 	CertDuration         int
 	CertValidityFallback int
 	CacheDuration        int
+	CertPrincipals       string
+	ProvisionUser        bool
+	DefaultUser          string
+	ForceCommand         string
 	Keys
 }
 
@@ -88,6 +97,10 @@ func Load(path string) (Config, error) {
 			CertValidityFallback: defOptions.CertValidityFallback,
 			CacheDuration:        defOptions.CacheDuration,
 			ListenAddress:        defOptions.ListenAddress,
+			CertPrincipals:       defOptions.CertPrincipals,
+			ProvisionUser:        defOptions.ProvisionUser,
+			DefaultUser:          defOptions.DefaultUser,
+			ForceCommand:         defOptions.ForceCommand,
 		}
 
 		if err := hostgroup.MapTo(opts); err != nil {
@@ -106,7 +119,9 @@ func Load(path string) (Config, error) {
 				key == "user-ca-privkey" || key == "user-ca-pubkey" ||
 				key == "cert-validity" || key == "cert-validity-fallback" ||
 				key == "cache-duration" ||
-				key == "listen-address" {
+				key == "listen-address" ||
+				key == "cert-principals" || key == "provision-user" ||
+				key == "default-user" || key == "force-command" {
 				continue
 			}
 
@@ -123,6 +138,28 @@ func Load(path string) (Config, error) {
 				hg.CertValidity == "" ||
 				hg.CacheDuration == 0) {
 			return conf, errors.New("missing option in hostgroup " + hg.Name)
+		}
+
+		// Apply defaults for new options
+		if hg.CertPrincipals == "" {
+			hg.CertPrincipals = "oinit $provisioned-user"
+		}
+		if hg.ForceCommand == "" {
+			hg.ForceCommand = "oinit-switch $cert-principals"
+		}
+		if hg.ProvisionUser == "" {
+			hg.ProvisionUserVal = true
+		} else {
+			val, err := strconv.ParseBool(hg.ProvisionUser)
+			if err != nil {
+				return conf, fmt.Errorf("invalid provision-user value in hostgroup %s: %s", hg.Name, hg.ProvisionUser)
+			}
+			hg.ProvisionUserVal = val
+		}
+
+		// Validate: if provisioning is disabled, a default-user must be set
+		if !hg.ProvisionUserVal && hg.DefaultUser == "" {
+			return conf, fmt.Errorf("default-user is required when provision-user is false in hostgroup %s", hg.Name)
 		}
 
 		conf.HostGroups = append(conf.HostGroups, *hg)
@@ -249,6 +286,10 @@ func (c Config) GetInfo(host string) (HostInfo, error) {
 					CertDuration:         hostGroup.CertDuration,
 					CertValidityFallback: hostGroup.CertValidityFallback,
 					CacheDuration:        hostGroup.CacheDuration,
+					CertPrincipals:       hostGroup.CertPrincipals,
+					ProvisionUser:        hostGroup.ProvisionUserVal,
+					DefaultUser:          hostGroup.DefaultUser,
+					ForceCommand:         hostGroup.ForceCommand,
 					Keys:                 hostGroup.Keys,
 				}, nil
 			}

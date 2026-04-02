@@ -38,24 +38,12 @@ func getUid(name string) (int, error) {
 }
 
 func main() {
-	if len(os.Args) != 2 {
-		log.LogError("1")
+	if len(os.Args) < 2 {
 		log.LogFatal(ERR_NOT_ALLOWED)
 	}
 
-	target := os.Args[1]
-
-	// Make sure target user is not a system user. This is not strictly
-	// necessary because (a) oinit-ca would never issue a certificate
-	// containing a force-command to switch to a system user and (b) all proper
-	// system users (except root) have their shell so to /bin/nologin (or
-	// similar), however this check doesn't hurt and increases security.
-	targetUid, err := getUid(target)
-	if err != nil || targetUid < SYS_UID_MAX {
-		log.LogInfo(fmt.Sprintf("targetUID < SYS_UID_MAX (%d < %d | %s)", targetUid, SYS_UID_MAX, target))
-		log.LogError("2")
-		log.LogFatal(ERR_NOT_ALLOWED)
-	}
+	// Arguments are the allowed users (certificate principals).
+	allowedUsers := os.Args[1:]
 
 	curUser, err := user.Current()
 	if err != nil {
@@ -66,37 +54,22 @@ func main() {
 		log.LogFatal(ERR_INTERNAL)
 	}
 
-	// If the current user is already the target user, exec their shell
-	// directly instead of going through su (which would prompt for a
-	// password). This happens when the certificate contains the target
+	// If the current user is one of the allowed users, exec their shell
+	// directly. This happens when the certificate contains the current
 	// username as principal, allowing the user to connect as himself/herself
-	// directly without going through the oinit user.
-	if targetUid == curUid {
-		shell := os.Getenv("SHELL")
-		if shell == "" {
-			shell = "/bin/sh"
-		}
-
-		shellPath, err := exec.LookPath(shell)
+	// directly without going through a service account.
+	for _, u := range allowedUsers {
+		uid, err := getUid(u)
 		if err != nil {
-			log.LogFatal(ERR_INTERNAL)
+			continue
 		}
-
-		if sshCmd, ok := os.LookupEnv("SSH_ORIGINAL_COMMAND"); ok {
-			if err := syscall.Exec(shellPath, []string{shell, "-c", sshCmd}, os.Environ()); err != nil {
-				os.Exit(1)
-			}
-		} else {
-			// Use "-<shell>" as argv[0] to start a login shell, matching
-			// the convention used by login(1) and su(1).
-			if err := syscall.Exec(shellPath, []string{"-" + shell}, os.Environ()); err != nil {
-				os.Exit(1)
-			}
+		if uid == curUid {
+			execShell()
 		}
 	}
 
-	// In all other cases, make sure the program is executed by the oinit
-	// user. This is not strictly necessary, because the 'su' command would
+	// Make sure the program is executed by the oinit service user.
+	// This is not strictly necessary, because the 'su' command would
 	// just prompt for a password in case the user executing this program
 	// isn't oinit.
 	oinitUid, err := getUid(OINIT_USER)
@@ -105,7 +78,29 @@ func main() {
 	}
 
 	if curUid != oinitUid {
-		log.LogError("3")
+		log.LogFatal(ERR_NOT_ALLOWED)
+	}
+
+	// Find the first allowed user that is a different, non-system
+	// user and switch to them via su.
+	var target string
+	for _, u := range allowedUsers {
+		uid, err := getUid(u)
+		if err != nil {
+			continue
+		}
+		if uid == curUid {
+			continue
+		}
+		if uid < SYS_UID_MAX {
+			log.LogInfo(fmt.Sprintf("skipping system user %s (uid %d)", u, uid))
+			continue
+		}
+		target = u
+		break
+	}
+
+	if target == "" {
 		log.LogFatal(ERR_NOT_ALLOWED)
 	}
 
@@ -131,7 +126,6 @@ func main() {
 		// this program does not run ssh command when a tty is present.
 
 		if isatty.IsTerminal(os.Stdout.Fd()) || isatty.IsCygwinTerminal(os.Stdout.Fd()) {
-			log.LogError("4")
 			log.LogFatal(ERR_NOT_ALLOWED)
 		}
 
@@ -144,5 +138,31 @@ func main() {
 	// to prevent unnecessary resource hogging and hide this script in htop
 	if err := syscall.Exec(argv0, argv, os.Environ()); err != nil {
 		os.Exit(1)
+	}
+}
+
+// execShell execs the current user's login shell (or SSH_ORIGINAL_COMMAND).
+// This function never returns.
+func execShell() {
+	shell := os.Getenv("SHELL")
+	if shell == "" {
+		shell = "/bin/sh"
+	}
+
+	shellPath, err := exec.LookPath(shell)
+	if err != nil {
+		log.LogFatal(ERR_INTERNAL)
+	}
+
+	if sshCmd, ok := os.LookupEnv("SSH_ORIGINAL_COMMAND"); ok {
+		if err := syscall.Exec(shellPath, []string{shell, "-c", sshCmd}, os.Environ()); err != nil {
+			os.Exit(1)
+		}
+	} else {
+		// Use "-<shell>" as argv[0] to start a login shell, matching
+		// the convention used by login(1) and su(1).
+		if err := syscall.Exec(shellPath, []string{"-" + shell}, os.Environ()); err != nil {
+			os.Exit(1)
+		}
 	}
 }

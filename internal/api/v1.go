@@ -234,7 +234,16 @@ func PostHostCertificate(c *gin.Context) {
 		return
 	}
 
-	status, err := libmotleycue.NewClient(info.URL).GetUserDeploy(body.Token)
+	// Call motley_cue to validate the token. If provisioning is enabled
+	// (default), use /user/deploy to also provision a local account.
+	// Otherwise, use /user/get_status for validation only.
+	mcClient := libmotleycue.NewClient(info.URL)
+	var status libmotleycue.ApiResponseUserStatus
+	if info.ProvisionUser {
+		status, err = mcClient.GetUserDeploy(body.Token)
+	} else {
+		status, err = mcClient.GetUserStatus(body.Token)
+	}
 	if err != nil {
 		// HTTP error or network issue - pass through the specific error from libmotleycue
 		log.Printf("motley_cue error: %s", err)
@@ -282,6 +291,11 @@ func PostHostCertificate(c *gin.Context) {
 	var subject string = "unknown"
 	var username string = status.Credentials.SSHUser // default from credentials
 
+	// When provisioning is disabled, use the configured default user
+	if !info.ProvisionUser {
+		username = info.DefaultUser
+	}
+
 	// First try to get from motley_cue response (preferred)
 	if status.Iss != "" {
 		issuer = status.Iss
@@ -289,7 +303,7 @@ func PostHostCertificate(c *gin.Context) {
 	if status.Sub != "" {
 		subject = status.Sub
 	}
-	if status.Username != "" {
+	if info.ProvisionUser && status.Username != "" {
 		username = status.Username
 	}
 
@@ -327,7 +341,22 @@ func PostHostCertificate(c *gin.Context) {
 		log.Printf("Using fallback certDuration: %ds", certDuration)
 	}
 
-	cert := generateUserCertificate(host.Host, pubkey, username, subject, issuer, uint64(certDuration))
+	// Resolve principals from config template, replacing $provisioned-user.
+	// The "oinit" service user is always included as a principal.
+	principals := []string{"oinit"}
+	for _, p := range strings.Fields(info.CertPrincipals) {
+		resolved := strings.ReplaceAll(p, "$provisioned-user", username)
+		if resolved != "oinit" {
+			principals = append(principals, resolved)
+		}
+	}
+
+	// Resolve force-command from config template
+	resolvedPrincipals := strings.Join(principals, " ")
+	forceCommand := strings.ReplaceAll(info.ForceCommand, "$cert-principals", resolvedPrincipals)
+	forceCommand = strings.ReplaceAll(forceCommand, "$provisioned-user", username)
+
+	cert := generateUserCertificate(host.Host, pubkey, username, subject, issuer, uint64(certDuration), principals, forceCommand)
 
 	signer, err := ssh.NewSignerFromKey(info.UserCAPrivateKey)
 	if err != nil || cert.SignCert(rand.Reader, signer) != nil {
