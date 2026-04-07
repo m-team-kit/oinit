@@ -71,9 +71,9 @@ type ApiResponseUserStatus struct {
 	State       UserStatusState `json:"state"`
 	Message     string          `json:"message"`
 	Credentials Credentials     `json:"credentials"`
-	Sub         string          `json:"sub"`      // JWT subject claim
-	Iss         string          `json:"iss"`      // JWT issuer claim
-	Username    string          `json:"username"` // Username from token
+	Sub         string          `json:"sub"`      // JWT subject claim, not yet supported by motley_cue
+	Iss         string          `json:"iss"`      // JWT issuer claim, not yet supported by motley_cue
+	Username    string          `json:"username"` // Username from token, not yet supported by motley_cue
 }
 
 type Client struct {
