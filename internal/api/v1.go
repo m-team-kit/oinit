@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/lbrocke/oinit/internal/config"
+	oidcutil "github.com/lbrocke/oinit/internal/oidc"
 	"github.com/lbrocke/oinit/internal/util"
 	"github.com/lbrocke/oinit/pkg/libmotleycue"
 
@@ -57,6 +58,7 @@ type UriHost struct {
 type FormHostCertificate struct {
 	Publickey string `json:"publickey" binding:"required"`
 	Token     string `json:"token" binding:"required"`
+	Issuer    string `json:"issuer"`
 }
 
 func Error(c *gin.Context, code int, msg string) {
@@ -291,23 +293,17 @@ func PostHostCertificate(c *gin.Context) {
 	var subject string = "unknown"
 	var username string = status.Credentials.SSHUser // default from credentials
 
+	// First: the username
 	// When provisioning is disabled, use the configured default user
 	if !info.ProvisionUser {
 		username = info.DefaultUser
-	}
-
-	// First try to get from motley_cue response (preferred)
-	if status.Iss != "" {
-		issuer = status.Iss
-	}
-	if status.Sub != "" {
-		subject = status.Sub
 	}
 	if info.ProvisionUser && status.Username != "" {
 		username = status.Username
 	}
 
-	// Fallback to JWT claims if motley_cue didn't provide them
+	// Second: use various ways to find sub and iss
+	// 1: use JWT claims to find sub and iss.
 	if err == nil && (issuer == "unknown" || subject == "unknown") {
 		if claims, ok := token.Claims.(jwt.MapClaims); ok {
 			if issuer == "unknown" {
@@ -326,6 +322,34 @@ func PostHostCertificate(c *gin.Context) {
 					}
 				}
 			}
+		}
+	}
+
+	// 2: use motley_cue response fields if available
+	if issuer == "unknown" && status.Iss != "" {
+		issuer = status.Iss
+		log.Printf("Retrieved issuer from motley_cue: %s", issuer)
+	}
+	if subject == "unknown" && status.Sub != "" {
+		subject = status.Sub
+		log.Printf("Retrieved subject from motley_cue: %s", subject)
+	}
+
+	// 3: use client-provided issuer (for non-JWT/opaque tokens)
+	if issuer == "unknown" && body.Issuer != "" {
+		issuer = body.Issuer
+		log.Printf("Retrieved issuer from client request: %s", issuer)
+	}
+
+	// 4: if subject is still unknown but we have an issuer, try the
+	// userinfo endpoint to obtain the subject claim. This is needed
+	// for opaque (non-JWT) access tokens.
+	if subject == "unknown" && issuer != "unknown" {
+		if sub, err := oidcutil.LookupSubject(issuer, body.Token); err == nil {
+			subject = sub
+			log.Printf("Retrieved subject from userinfo endpoint: %s", subject)
+		} else {
+			log.Printf("Userinfo lookup failed: %s", err)
 		}
 	}
 

@@ -203,8 +203,8 @@ func handleCommandList() {
 
 // getTokenFromOidcAgent prompts the user to select a supported OIDC issuer
 // and then requests an access token via oidc-agent. It takes the CA client
-// and host as arguments and returns the access token.
-func getTokenFromOidcAgent(caClient liboinitca.Client, host string) string {
+// and host as arguments and returns the access token and the issuer URL.
+func getTokenFromOidcAgent(caClient liboinitca.Client, host string) (string, string) {
 
 	hostRes, err := caClient.GetHost(host)
 	if err != nil {
@@ -241,7 +241,7 @@ func getTokenFromOidcAgent(caClient liboinitca.Client, host string) string {
 		log.LogFatalTTY("Received an empty token from oidc-agent.")
 	}
 
-	return token
+	return token, provider
 }
 
 // promptProviders prompts the user to select an OIDC provider from the list
@@ -413,11 +413,15 @@ func handleCommandMatch(args []string) {
 			return
 		}
 	}
-	// Get the Access Token
+	// Get the Access Token and (if known) the OIDC issuer URL.
+	// The issuer is passed to the CA so it can be used in the certificate
+	// even when the access token is not a JWT (opaque token).
+	var token string
+	var issuer string
 
 	// ... from environment variable
 	log.LogDebugTTY("Searching token in environment")
-	token := util.Getenvs("ACCESS_TOKEN", "BEARER_TOKEN", "OIDC", "OS_ACCESS_TOKEN",
+	token = util.Getenvs("ACCESS_TOKEN", "BEARER_TOKEN", "OIDC", "OS_ACCESS_TOKEN",
 		"OIDC_ACCESS_TOKEN", "WATTS_TOKEN", "WATTSON_TOKEN")
 
 	// ... from BEARER_TOKEN_FILE
@@ -458,8 +462,9 @@ func handleCommandMatch(args []string) {
 	if token == "" {
 		log.LogDebugTTY("Searching token in oidc-agent $OP")
 		if oidc.AgentIsRunning() {
-			// Use oidc-agent to get token.
-			token = getTokenFromOidcAgent(caClient, host)
+			// Use oidc-agent to get token. The issuer (provider URL)
+			// is known from the provider selection.
+			token, issuer = getTokenFromOidcAgent(caClient, host)
 		}
 	}
 	// ... manual token entry
@@ -469,13 +474,22 @@ func handleCommandMatch(args []string) {
 		token = promptForManualToken(caClient, host)
 	}
 
+	// For tokens obtained from environment variables or files, the issuer
+	// can be provided via OIDC_ISS or OIDC_ISSUER environment variables.
+	if issuer == "" {
+		issuer = util.Getenvs("OIDC_ISS", "OIDC_ISSUER")
+		if issuer != "" {
+			log.LogDebugTTY("Using issuer from environment: " + issuer)
+		}
+	}
+
 	log.LogDebugTTY("Generating private ssh-cert-key")
 	pubkey, privkey, err := generateEd25519Keys()
 	if err != nil {
 		log.LogFatalTTY("There was an error generating a temporary key pair.")
 	}
 
-	res, err := caClient.PostHostCertificate(host, pubkey, token)
+	res, err := caClient.PostHostCertificate(host, pubkey, token, issuer)
 	if err != nil {
 		log.LogFatalTTY("CA responded: " + err.Error())
 	}

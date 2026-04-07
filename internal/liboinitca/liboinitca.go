@@ -103,12 +103,15 @@ func (c Client) GetHost(host string) (api.ApiResponseHost, error) {
 }
 
 // Generate and return a new SSH certificate using the given access token.
-func (c Client) PostHostCertificate(host, pubkey, token string) (api.ApiResponseCertificate, error) {
+// The issuer parameter is optional and provides the OIDC issuer URL for
+// non-JWT tokens where the issuer cannot be extracted from the token itself.
+func (c Client) PostHostCertificate(host, pubkey, token, issuer string) (api.ApiResponseCertificate, error) {
 	var response api.ApiResponseCertificate
 
 	reqBody, err := json.Marshal(api.FormHostCertificate{
 		Publickey: pubkey,
 		Token:     token,
+		Issuer:    issuer,
 	})
 	if err != nil {
 		return response, err
