@@ -34,7 +34,7 @@ git config user.email || {
 #   else use last found remote
 REMOTES=$(git remote show)
 for R in $REMOTES; do
-    MASTER=main
+    MASTER=master
     MASTER_BRANCH="refs/remotes/${R}/${MASTER}"
     #echo "Master-branch: ${MASTER_BRANCH}"
     [ "x${R}" = "xorigin" ] && break
