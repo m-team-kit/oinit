@@ -1,7 +1,7 @@
 # oinit
 > Certificate-based OpenSSH for Federated Identities
 
-[![Latest release](https://img.shields.io/gitlab/v/tag/m-team/oidc/ssh/oinit?gitlab_url=https%3A%2F%2Fcodebase.helmholtz.cloud&sort=semver&color=blue)](https://codebase.helmholtz.cloud/m-team/oidc/ssh/oinit/-/tags)
+[![Latest release](https://img.shields.io/gitlab/v/tag/m-team/oidc/ssh/oinit?gitlab_url=https%3A%2F%2Fcodebase.helmholtz.cloud&sort=semver&color=blue&label=release)](https://codebase.helmholtz.cloud/m-team/oidc/ssh/oinit/-/tags)
 [![License](https://img.shields.io/badge/license-MIT-blue)](https://github.com/m-team-kit/oinit/blob/main/LICENSE)
 [![Gitlab CI](https://codebase.helmholtz.cloud/m-team/oidc/ssh/oinit/badges/main/pipeline.svg)](https://codebase.helmholtz.cloud/m-team/oidc/ssh/oinit/-/pipelines)
 
