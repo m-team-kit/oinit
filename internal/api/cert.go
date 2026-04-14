@@ -48,6 +48,7 @@ func generateUserCertificate(host string, pubkey ssh.PublicKey, username string,
 			CriticalOptions: criticalOptions,
 			Extensions: map[string]string{
 				"permit-agent-forwarding": "",
+				"permit-port-forwarding":  "",
 				"permit-pty":              "",
 			},
 		},
