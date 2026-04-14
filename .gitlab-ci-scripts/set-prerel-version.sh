@@ -43,16 +43,16 @@ done
 
 [[ "${DEVSTRING}" == "dev" ]] && {
     [[ -z ${CI_JOB_ID} ]] || {
-        PREREL=${CI_JOB_ID}
+        PREREL_NUMBER=$(date +%y%m%d%H%M)
     }
 }
-[[ -z ${PREREL} ]] && {
-    PREREL=$(git rev-list --count HEAD ^"$MASTER_BRANCH")
+[[ -z ${PREREL_NUMBER} ]] && {
+    PREREL_NUMBER=$(git rev-list --count HEAD ^"$MASTER_BRANCH")
 }
 
 # use version file:
 VERSION=$(cat "$VERSION_FILE")
-PR_VERSION="${VERSION}-${DEVSTRING}${PREREL}"
+PR_VERSION="${VERSION}-${DEVSTRING}${PREREL_NUMBER}"
 echo "$PR_VERSION" > "$VERSION_FILE"
 echo "$PR_VERSION"
 
