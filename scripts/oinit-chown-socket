@@ -1,0 +1,8 @@
+#!/bin/sh
+# PAM session script for oinit: transfers ownership of a forwarded
+# oidc-agent socket to the target user.
+#
+# Install to /usr/local/libexec/oinit-chown-socket and add to /etc/pam.d/su:
+#   session optional pam_exec.so quiet /usr/local/libexec/oinit-chown-socket
+
+[ -S "$OIDC_SOCK" ] && chown "$PAM_USER" "$OIDC_SOCK"

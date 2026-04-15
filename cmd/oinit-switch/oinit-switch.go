@@ -40,26 +40,6 @@ func getUid(name string) (int, error) {
 	return uid, nil
 }
 
-// prepareForwardedOidcSocket searches for a forwarded oidc-agent unix socket
-// (matching "oidc-forward" in /proc/net/unix), makes it accessible to other
-// users, and sets OIDC_SOCK_AUTODETECTED in the environment.
-func prepareForwardedOidcSocket() {
-	socketPath := findForwardedOidcSocket()
-	if socketPath == "" {
-		return
-	}
-
-	// Make the socket accessible to the target user. We can't chown
-	// (requires root), but we own the socket so we can chmod it.
-	if err := os.Chmod(socketPath, 0666); err != nil {
-		log.LogInfo(fmt.Sprintf("Could not chmod forwarded socket %s: %v", socketPath, err))
-		return
-	}
-
-	os.Setenv("OIDC_SOCK_AUTODETECTED", socketPath)
-	log.LogInfo(fmt.Sprintf("Detected forwarded oidc-agent socket: %s", socketPath))
-}
-
 // findForwardedOidcSocket searches /proc/net/unix for a unix socket whose path
 // contains "oidc-forward". If multiple are found (concurrent sessions), it
 // disambiguates by matching socket inodes against the session's sshd process.
@@ -197,8 +177,8 @@ func main() {
 		log.LogFatal(ERR_INTERNAL)
 	}
 
-	// Detect forwarded oidc-agent socket and prepare it for the target user
-	prepareForwardedOidcSocket()
+	// Detect forwarded oidc-agent socket (applied later once target is known)
+	socketPath := findForwardedOidcSocket()
 
 	// If the current user is one of the allowed users, exec their shell
 	// directly. This happens when the certificate contains the current
@@ -210,6 +190,11 @@ func main() {
 			continue
 		}
 		if uid == curUid {
+			// Socket is already owned by us — just set the env var
+			if socketPath != "" {
+				os.Setenv("OIDC_SOCK", socketPath)
+				log.LogInfo(fmt.Sprintf("Detected forwarded oidc-agent socket: %s", socketPath))
+			}
 			execShell()
 		}
 	}
@@ -250,16 +235,20 @@ func main() {
 		log.LogFatal(ERR_NOT_ALLOWED)
 	}
 
+	// Set OIDC_SOCK for the forwarded oidc-agent socket. The PAM session
+	// script (oinit-chown-socket) will chown the socket to the target user
+	// as root before su drops privileges.
+	var suOpts []string
+	if socketPath != "" {
+		os.Setenv("OIDC_SOCK", socketPath)
+		log.LogInfo(fmt.Sprintf("Detected forwarded oidc-agent socket: %s", socketPath))
+		suOpts = append(suOpts, "-w", "OIDC_SOCK")
+	}
+
 	// syscall.Exec() requires full path
 	argv0, err := exec.LookPath(SU_COMMAND)
 	if err != nil {
 		log.LogFatal(ERR_INTERNAL)
-	}
-
-	// Build su options — whitelist OIDC_SOCK_AUTODETECTED through su if set
-	var suOpts []string
-	if _, ok := os.LookupEnv("OIDC_SOCK_AUTODETECTED"); ok {
-		suOpts = append(suOpts, "-w", "OIDC_SOCK_AUTODETECTED")
 	}
 
 	var argv []string
