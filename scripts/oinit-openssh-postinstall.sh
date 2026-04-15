@@ -16,6 +16,7 @@ echo "   oinit user to switch to other users without being prompted for a passwo
 echo ""
 echo "    auth [success=ignore default=1] pam_succeed_if.so use_uid user = oinit"
 echo "    auth sufficient                 pam_succeed_if.so uid ne 0"
+echo "    session optional pam_exec.so quiet /usr/local/libexec/oinit-chown-socket"
 
 echo ""
 echo ""
