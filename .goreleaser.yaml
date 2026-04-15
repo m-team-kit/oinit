@@ -187,7 +187,7 @@ nfpms:
       - dst: /var/oinit-shell
         type: dir
       - src: scripts/oinit-chown-socket
-        dst: /usr/local/libexec
+        dst: /usr/local/libexec/oinit-chown-socket
     section: misc
     formats:
       - apk
