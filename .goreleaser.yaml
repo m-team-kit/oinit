@@ -186,6 +186,8 @@ nfpms:
         dst: /usr/share/doc/{{ .PackageName }}/copyright
       - dst: /var/oinit-shell
         type: dir
+      - src: scripts/oinit-chown-socket
+        dst: /usr/local/libexec
     section: misc
     formats:
       - apk
