@@ -19,7 +19,7 @@ import (
 const (
 	SU_COMMAND  = "su"
 	OINIT_USER  = "oinit"
-	LOG_FILE    = "/var/log/oinit"
+	LOG_FILE    = "/tmp/oinit.log"
 	SYS_UID_MAX = 99
 
 	ERR_NOT_ALLOWED = "This is not allowed."
