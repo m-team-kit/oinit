@@ -80,12 +80,12 @@ func getUid(name string) (int, error) {
 // findForwardedOidcSocket searches /proc/net/unix for a unix socket whose path
 // contains "oidc-forward". If multiple are found (concurrent sessions), it
 // disambiguates by matching socket inodes against the session's sshd process.
-func findForwardedOidcSocket() string {
-	type unixSocket struct {
-		inode string
-		path  string
-	}
+type unixSocket struct {
+	inode string
+	path  string
+}
 
+func findForwardedOidcSocket() string {
 	f, err := os.Open("/proc/net/unix")
 	if err != nil {
 		logf(fmt.Sprintf("Cannot open /proc/net/unix: %v", err))
@@ -113,26 +113,51 @@ func findForwardedOidcSocket() string {
 	if len(candidates) == 0 {
 		return ""
 	}
-	if len(candidates) == 1 {
-		return candidates[0].path
-	}
 
-	// Multiple candidates — find our session's sshd and match by inode
-	sshdPid := findSessionSshdPid()
-	if sshdPid == 0 {
-		logf("Could not find session sshd PID, using first oidc-forward socket")
-		return candidates[0].path
-	}
-
-	sshdInodes := getProcessSocketInodes(sshdPid)
-	for _, c := range candidates {
-		if sshdInodes[c.inode] {
-			return c.path
+	// Try to match by inode against our session's sshd
+	if len(candidates) > 1 {
+		sshdPid := findSessionSshdPid()
+		if sshdPid != 0 {
+			sshdInodes := getProcessSocketInodes(sshdPid)
+			for _, c := range candidates {
+				if sshdInodes[c.inode] {
+					return c.path
+				}
+			}
+			logf("No inode match for session sshd, falling back to newest socket")
+		} else {
+			logf("Could not find session sshd PID, falling back to newest socket")
 		}
 	}
 
-	logf("No inode match for session sshd, using first oidc-forward socket")
-	return candidates[0].path
+	// Fall back to the newest socket owned by the current user
+	return newestOwnedSocket(candidates)
+}
+
+// newestOwnedSocket returns the path of the most recently created socket
+// from the candidate list that is owned by the current user. Returns ""
+// if none qualify.
+func newestOwnedSocket(candidates []unixSocket) string {
+	var newest string
+	var newestTime int64
+	curUid := uint32(os.Getuid())
+
+	for _, c := range candidates {
+		info, err := os.Lstat(c.path)
+		if err != nil {
+			continue
+		}
+		stat, ok := info.Sys().(*syscall.Stat_t)
+		if !ok || stat.Uid != curUid {
+			continue
+		}
+		ctime := stat.Ctim.Nano()
+		if ctime > newestTime {
+			newestTime = ctime
+			newest = c.path
+		}
+	}
+	return newest
 }
 
 // findSessionSshdPid walks up the process tree from the current process
