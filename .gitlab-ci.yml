@@ -4,6 +4,7 @@ include:
 
 variables:
   USE_GORELEASER: "true"
+  GIT_STRATEGY: clone
 
 image: golang:1.25
 
