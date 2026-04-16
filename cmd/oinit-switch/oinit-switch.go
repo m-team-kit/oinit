@@ -267,18 +267,20 @@ func main() {
 		fatalf(ERR_NOT_ALLOWED)
 	}
 
-	// Write the socket path to a file that the PAM session script can read.
-	// syscall.Exec preserves our PID, so su runs with the same PID and the
-	// PAM script (forked by pam_exec) can find it via $PPID.
+	// Chown the forwarded socket to the target user (requires CAP_CHOWN).
 	var suOpts []string
 	if socketPath != "" {
-		sockFile := fmt.Sprintf("/tmp/oinit-sock-%s-%d", target, os.Getpid())
-		if err := os.WriteFile(sockFile, []byte(socketPath), 0644); err != nil {
-			logf(fmt.Sprintf("Could not write socket path to %s: %v", sockFile, err))
-		} else {
-			logf(fmt.Sprintf("Wrote socket path to %s", sockFile))
-			os.Setenv("OIDC_SOCK", socketPath)
-			suOpts = append(suOpts, "-w", "OIDC_SOCK")
+		targetUser, err := user.Lookup(target)
+		if err == nil {
+			targetUid, _ := strconv.Atoi(targetUser.Uid)
+			targetGid, _ := strconv.Atoi(targetUser.Gid)
+			if err := os.Chown(socketPath, targetUid, targetGid); err != nil {
+				logf(fmt.Sprintf("Could not chown socket %s to %s: %v", socketPath, target, err))
+			} else {
+				logf(fmt.Sprintf("Chowned socket %s to %s (%d:%d)", socketPath, target, targetUid, targetGid))
+				os.Setenv("OIDC_SOCK", socketPath)
+				suOpts = append(suOpts, "-w", "OIDC_SOCK")
+			}
 		}
 	}
 

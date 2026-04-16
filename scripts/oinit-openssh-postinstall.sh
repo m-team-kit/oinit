@@ -7,6 +7,9 @@ if ! getent passwd oinit >/dev/null; then
     useradd --system --shell /usr/bin/oinit-shell --home-dir /var/oinit-shell --no-create-home --badname oinit > /dev/null
 fi
 
+# Grant oinit-switch the ability to chown forwarded oidc-agent sockets
+setcap cap_chown=ep /usr/bin/oinit-switch 2>/dev/null || true
+
 # Generate host key pair
 mkdir -p /etc/ssh/
 ! test -f /etc/ssh/host-key && ssh-keygen -t ed25519 -f /etc/ssh/host-key -N "" > /dev/null

@@ -199,20 +199,28 @@ nfpms:
     bindir: /usr/bin
     overrides:
       deb:
+        dependencies:
+          - libcap2-bin
         recommends:
           - openssh-server
           - motley-cue
       rpm:
+        dependencies:
+          - libcap
         recommends:
           - openssh-server
           - util-linux
           - motley-cue
       apk:
+        dependencies:
+          - libcap
         recommends:
           - openssh
           - util-linux
           # motley-cue is not packaged for Alpine
       archlinux:
+        dependencies:
+          - libcap
         recommends:
           - openssh
           - util-linux
