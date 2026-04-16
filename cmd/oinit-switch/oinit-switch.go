@@ -51,6 +51,9 @@ func logf(msg string) {
 func fatalf(msg string) {
 	if socketCleanupPath != "" {
 		os.Remove(socketCleanupPath)
+		if fileLogger != nil {
+			fileLogger.Printf("[pid %d] Removed socket %s on fatal exit", os.Getpid(), socketCleanupPath)
+		}
 	}
 	if fileLogger != nil {
 		fileLogger.Println("FATAL: " + msg)
@@ -196,7 +199,7 @@ func getProcessSocketInodes(pid int) map[string]bool {
 
 func main() {
 	initFileLog()
-	// logf(fmt.Sprintf("invoked with args: %v", os.Args[1:]))
+	logf(fmt.Sprintf("[pid %d] invoked with args: %v", os.Getpid(), os.Args[1:]))
 
 	if len(os.Args) < 2 {
 		fatalf(ERR_NOT_ALLOWED)
@@ -281,10 +284,9 @@ func main() {
 			targetUid, _ := strconv.Atoi(targetUser.Uid)
 			targetGid, _ := strconv.Atoi(targetUser.Gid)
 			if err := os.Chown(socketPath, targetUid, targetGid); err != nil {
-				logf(fmt.Sprintf("Could not chown socket %s to %s: %v", socketPath, target, err))
+				logf(fmt.Sprintf("[pid %d] Could not chown socket %s to %s: %v", os.Getpid(), socketPath, target, err))
 			} else {
-				// logf(fmt.Sprintf("Chowned socket %s to %s (%d:%d)", socketPath, target, targetUid, targetGid))
-				logf(fmt.Sprintf("oidc-agent forwarding enabled via socket %s", socketPath))
+				logf(fmt.Sprintf("[pid %d] oidc-agent socket-forwarding: %s to user %s (%d:%d)", os.Getpid(), socketPath, target, targetUid, targetGid))
 				os.Setenv("OIDC_SOCK", socketPath)
 				suOpts = append(suOpts, "-w", "OIDC_SOCK")
 			}
@@ -335,6 +337,7 @@ func main() {
 	if err := syscall.Exec(argv0, argv, os.Environ()); err != nil {
 		if socketPath != "" {
 			os.Remove(socketPath)
+			logf(fmt.Sprintf("[pid %d] Removed socket %s after exec failure for user %s", os.Getpid(), socketPath, target))
 		}
 		os.Exit(1)
 	}
