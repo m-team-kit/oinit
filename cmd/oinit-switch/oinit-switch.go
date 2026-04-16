@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"fmt"
+	golog "log"
 	"os"
 	"os/exec"
 	"os/user"
@@ -18,11 +19,39 @@ import (
 const (
 	SU_COMMAND  = "su"
 	OINIT_USER  = "oinit"
+	LOG_FILE    = "/var/log/oinit"
 	SYS_UID_MAX = 99
 
 	ERR_NOT_ALLOWED = "This is not allowed."
 	ERR_INTERNAL    = "Internal error. oinit might not be set up correctly."
 )
+
+var fileLogger *golog.Logger
+
+// initFileLog opens /var/log/oinit for append logging. Non-fatal if it fails.
+func initFileLog() {
+	f, err := os.OpenFile(LOG_FILE, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		return
+	}
+	fileLogger = golog.New(f, "oinit-switch: ", golog.LstdFlags)
+}
+
+// logf logs a message to both the TTY (via pkg/log) and the log file.
+func logf(msg string) {
+	log.LogInfo(msg)
+	if fileLogger != nil {
+		fileLogger.Println(msg)
+	}
+}
+
+// fatalf logs a message to both the TTY and log file, then exits.
+func fatalf(msg string) {
+	if fileLogger != nil {
+		fileLogger.Println("FATAL: " + msg)
+	}
+	log.LogFatal(msg)
+}
 
 // getUser returns the uid for the given username. If the user doesn't exist,
 // an error is returned.
@@ -51,7 +80,7 @@ func findForwardedOidcSocket() string {
 
 	f, err := os.Open("/proc/net/unix")
 	if err != nil {
-		log.LogDebug(fmt.Sprintf("Cannot open /proc/net/unix: %v", err))
+		logf(fmt.Sprintf("Cannot open /proc/net/unix: %v", err))
 		return ""
 	}
 	defer f.Close()
@@ -83,7 +112,7 @@ func findForwardedOidcSocket() string {
 	// Multiple candidates — find our session's sshd and match by inode
 	sshdPid := findSessionSshdPid()
 	if sshdPid == 0 {
-		log.LogDebug("Could not find session sshd PID, using first oidc-forward socket")
+		logf("Could not find session sshd PID, using first oidc-forward socket")
 		return candidates[0].path
 	}
 
@@ -94,7 +123,7 @@ func findForwardedOidcSocket() string {
 		}
 	}
 
-	log.LogDebug("No inode match for session sshd, using first oidc-forward socket")
+	logf("No inode match for session sshd, using first oidc-forward socket")
 	return candidates[0].path
 }
 
@@ -161,8 +190,11 @@ func getProcessSocketInodes(pid int) map[string]bool {
 }
 
 func main() {
+	initFileLog()
+	logf(fmt.Sprintf("invoked with args: %v", os.Args[1:]))
+
 	if len(os.Args) < 2 {
-		log.LogFatal(ERR_NOT_ALLOWED)
+		fatalf(ERR_NOT_ALLOWED)
 	}
 
 	// Arguments are the allowed users (certificate principals).
@@ -170,11 +202,11 @@ func main() {
 
 	curUser, err := user.Current()
 	if err != nil {
-		log.LogFatal(ERR_INTERNAL)
+		fatalf(ERR_INTERNAL)
 	}
 	curUid, err := strconv.Atoi(curUser.Uid)
 	if err != nil {
-		log.LogFatal(ERR_INTERNAL)
+		fatalf(ERR_INTERNAL)
 	}
 
 	// Detect forwarded oidc-agent socket (applied later once target is known)
@@ -193,7 +225,7 @@ func main() {
 			// Socket is already owned by us — just set the env var
 			if socketPath != "" {
 				os.Setenv("OIDC_SOCK", socketPath)
-				log.LogInfo(fmt.Sprintf("Detected forwarded oidc-agent socket: %s", socketPath))
+				logf(fmt.Sprintf("Detected forwarded oidc-agent socket: %s", socketPath))
 			}
 			execShell()
 		}
@@ -205,11 +237,11 @@ func main() {
 	// isn't oinit.
 	oinitUid, err := getUid(OINIT_USER)
 	if err != nil {
-		log.LogFatal(ERR_INTERNAL)
+		fatalf(ERR_INTERNAL)
 	}
 
 	if curUid != oinitUid {
-		log.LogFatal(ERR_NOT_ALLOWED)
+		fatalf(ERR_NOT_ALLOWED)
 	}
 
 	// Find the first allowed user that is a different, non-system
@@ -224,7 +256,7 @@ func main() {
 			continue
 		}
 		if uid < SYS_UID_MAX {
-			log.LogInfo(fmt.Sprintf("skipping system user %s (uid %d)", u, uid))
+			logf(fmt.Sprintf("skipping system user %s (uid %d)", u, uid))
 			continue
 		}
 		target = u
@@ -232,7 +264,7 @@ func main() {
 	}
 
 	if target == "" {
-		log.LogFatal(ERR_NOT_ALLOWED)
+		fatalf(ERR_NOT_ALLOWED)
 	}
 
 	// Set OIDC_SOCK for the forwarded oidc-agent socket. The PAM session
@@ -241,14 +273,14 @@ func main() {
 	var suOpts []string
 	if socketPath != "" {
 		os.Setenv("OIDC_SOCK", socketPath)
-		log.LogInfo(fmt.Sprintf("Detected forwarded oidc-agent socket: %s", socketPath))
+		logf(fmt.Sprintf("Detected forwarded oidc-agent socket: %s", socketPath))
 		suOpts = append(suOpts, "-w", "OIDC_SOCK")
 	}
 
 	// syscall.Exec() requires full path
 	argv0, err := exec.LookPath(SU_COMMAND)
 	if err != nil {
-		log.LogFatal(ERR_INTERNAL)
+		fatalf(ERR_INTERNAL)
 	}
 
 	var argv []string
@@ -267,7 +299,7 @@ func main() {
 		// this program does not run ssh command when a tty is present.
 
 		if isatty.IsTerminal(os.Stdout.Fd()) || isatty.IsCygwinTerminal(os.Stdout.Fd()) {
-			log.LogFatal(ERR_NOT_ALLOWED)
+			fatalf(ERR_NOT_ALLOWED)
 		}
 
 		argv = append([]string{SU_COMMAND}, suOpts...)
@@ -294,7 +326,7 @@ func execShell() {
 
 	shellPath, err := exec.LookPath(shell)
 	if err != nil {
-		log.LogFatal(ERR_INTERNAL)
+		fatalf(ERR_INTERNAL)
 	}
 
 	if sshCmd, ok := os.LookupEnv("SSH_ORIGINAL_COMMAND"); ok {
