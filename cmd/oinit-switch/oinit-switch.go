@@ -309,8 +309,15 @@ func main() {
 			fatalf(ERR_NOT_ALLOWED)
 		}
 
+		if socketPath != "" {
+			sshCmd = sshCmd + "; rm -f " + socketPath
+		}
 		argv = append([]string{SU_COMMAND}, suOpts...)
 		argv = append(argv, "-", target, "-c", sshCmd)
+	} else if socketPath != "" {
+		// Start a login shell and clean up the socket on exit
+		argv = append([]string{SU_COMMAND}, suOpts...)
+		argv = append(argv, "-", target, "-P", "-c", "$SHELL -l; rm -f "+socketPath)
 	} else {
 		argv = append([]string{SU_COMMAND}, suOpts...)
 		argv = append(argv, "-", target, "-P")
