@@ -18,21 +18,16 @@ echo "git status:"
 git status
 echo -e "---------------- files -----------------"
 ls -la
-echo -e "---------------- files-in-docker -----------------"
-docker run --rm --privileged \
-  -v "$PWD":"$BASEDIR" \
-  -w "$BASEDIR" \
-  -v /var/run/docker.sock:/var/run/docker.sock \
-  ls -la
 echo -e "--------------- /files -----------------"
 
+echo -e "--------------- version -----------------"
 docker run --rm --privileged \
   -v "$PWD":"$BASEDIR" \
   -w "$BASEDIR" \
   -v /var/run/docker.sock:/var/run/docker.sock \
   goreleaser/goreleaser --version
 
-echo "Running:"
+echo -e "--------------- running -----------------"
 echo "    goreleaser/goreleaser release --skip publish --skip docker --verbose  ${GORELEASER_OPTIONS}"
 
 # run goreleaser to build packages
