@@ -326,6 +326,9 @@ func main() {
 	// Use syscall.Exec (which calls execve) instead of exec.Command (which does fork + evecve)
 	// to prevent unnecessary resource hogging and hide this script in htop
 	if err := syscall.Exec(argv0, argv, os.Environ()); err != nil {
+		if socketPath != "" {
+			os.Remove(socketPath)
+		}
 		os.Exit(1)
 	}
 }
