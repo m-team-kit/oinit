@@ -191,7 +191,7 @@ func getProcessSocketInodes(pid int) map[string]bool {
 
 func main() {
 	initFileLog()
-	logf(fmt.Sprintf("invoked with args: %v", os.Args[1:]))
+	// logf(fmt.Sprintf("invoked with args: %v", os.Args[1:]))
 
 	if len(os.Args) < 2 {
 		fatalf(ERR_NOT_ALLOWED)
@@ -277,7 +277,8 @@ func main() {
 			if err := os.Chown(socketPath, targetUid, targetGid); err != nil {
 				logf(fmt.Sprintf("Could not chown socket %s to %s: %v", socketPath, target, err))
 			} else {
-				logf(fmt.Sprintf("Chowned socket %s to %s (%d:%d)", socketPath, target, targetUid, targetGid))
+				// logf(fmt.Sprintf("Chowned socket %s to %s (%d:%d)", socketPath, target, targetUid, targetGid))
+				logf(fmt.Sprintf("oidc-agent forwarding enabled via socket %s", socketPath))
 				os.Setenv("OIDC_SOCK", socketPath)
 				suOpts = append(suOpts, "-w", "OIDC_SOCK")
 			}
