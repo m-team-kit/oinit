@@ -2,7 +2,37 @@
 # PAM session script for oinit: transfers ownership of a forwarded
 # oidc-agent socket to the target user.
 #
+# oinit-switch writes the socket path to /tmp/oinit-sock-<user>-<pid>.
+# Since syscall.Exec preserves the PID, the su process has the same PID
+# as oinit-switch, and pam_exec forks us, so $PPID is the su PID.
+#
 # Install to /usr/local/libexec/oinit-chown-socket and add to /etc/pam.d/su:
 #   session optional pam_exec.so quiet /usr/local/libexec/oinit-chown-socket
 
-[ -S "$OIDC_SOCK" ] && chown "$PAM_USER" "$OIDC_SOCK"
+LOG=/tmp/oinit.log
+
+echo "" >> $LOG
+echo $0 $@ >> $LOG
+
+[ -S "$OIDC_SOCK" ] && chown "$PAM_USER" "$OIDC_SOCK" >> $LOG
+
+SOCK_FILE="/tmp/oinit-sock-${PAM_USER}-${PPID}"
+
+if [ ! -f "$SOCK_FILE" ]; then
+    exit 0
+fi
+
+SOCK_PATH=$(cat "$SOCK_FILE")
+
+
+echo "SOCK_PATH: $SOCK_PATH" >> $LOG
+echo "SOCK_FILE: $SOCK_FILE" >> $LOG
+echo "PAM_USER:  $PAM_USER" >> $LOG
+
+
+
+rm -f "$SOCK_FILE"
+
+if [ -S "$SOCK_PATH" ]; then
+    chown "$PAM_USER" "$SOCK_PATH"
+fi

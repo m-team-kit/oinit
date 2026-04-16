@@ -267,14 +267,19 @@ func main() {
 		fatalf(ERR_NOT_ALLOWED)
 	}
 
-	// Set OIDC_SOCK for the forwarded oidc-agent socket. The PAM session
-	// script (oinit-chown-socket) will chown the socket to the target user
-	// as root before su drops privileges.
+	// Write the socket path to a file that the PAM session script can read.
+	// syscall.Exec preserves our PID, so su runs with the same PID and the
+	// PAM script (forked by pam_exec) can find it via $PPID.
 	var suOpts []string
 	if socketPath != "" {
-		os.Setenv("OIDC_SOCK", socketPath)
-		logf(fmt.Sprintf("Detected forwarded oidc-agent socket: %s", socketPath))
-		suOpts = append(suOpts, "-w", "OIDC_SOCK")
+		sockFile := fmt.Sprintf("/tmp/oinit-sock-%s-%d", target, os.Getpid())
+		if err := os.WriteFile(sockFile, []byte(socketPath), 0644); err != nil {
+			logf(fmt.Sprintf("Could not write socket path to %s: %v", sockFile, err))
+		} else {
+			logf(fmt.Sprintf("Wrote socket path to %s", sockFile))
+			os.Setenv("OIDC_SOCK", socketPath)
+			suOpts = append(suOpts, "-w", "OIDC_SOCK")
+		}
 	}
 
 	// syscall.Exec() requires full path
