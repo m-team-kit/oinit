@@ -27,6 +27,7 @@ const (
 )
 
 var fileLogger *golog.Logger
+var socketCleanupPath string // set once socket is found; cleaned up on fatal exit
 
 // initFileLog opens /var/log/oinit for append logging. Non-fatal if it fails.
 func initFileLog() {
@@ -45,8 +46,12 @@ func logf(msg string) {
 	}
 }
 
-// fatalf logs a message to both the TTY and log file, then exits.
+// fatalf logs a message to both the TTY and log file, removes any
+// forwarded socket, then exits.
 func fatalf(msg string) {
+	if socketCleanupPath != "" {
+		os.Remove(socketCleanupPath)
+	}
 	if fileLogger != nil {
 		fileLogger.Println("FATAL: " + msg)
 	}
@@ -211,6 +216,7 @@ func main() {
 
 	// Detect forwarded oidc-agent socket (applied later once target is known)
 	socketPath := findForwardedOidcSocket()
+	socketCleanupPath = socketPath
 
 	// If the current user is one of the allowed users, exec their shell
 	// directly. This happens when the certificate contains the current
