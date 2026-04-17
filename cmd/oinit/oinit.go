@@ -112,7 +112,7 @@ func handleCommandAdd(args []string) {
 	// Try to contact CA, which returns the host CA public key to be added
 	// to the user's known_hosts file.
 	if res, err := liboinitca.NewClient(ca).GetHost(host); err != nil {
-		log.LogError("Could not contact CA: " + err.Error())
+		log.LogError("Error contactng the CA: " + err.Error())
 		return
 	} else {
 		if err := sshutil.AddSSHKnownHost(host, port, res.PublicKey); err != nil {
