@@ -14,17 +14,23 @@ setcap cap_chown=ep /usr/bin/oinit-switch 2>/dev/null || true
 mkdir -p /etc/ssh/
 ! test -f /etc/ssh/host-key && ssh-keygen -t ed25519 -f /etc/ssh/host-key -N "" > /dev/null
 
-echo "1. Please add the following two lines to '/etc/pam.d/su' in order to allow the"
-echo "   oinit user to switch to other users without being prompted for a password:"
-echo ""
-echo "    auth [success=ignore default=1] pam_succeed_if.so use_uid user = oinit"
-echo "    auth sufficient                 pam_succeed_if.so uid ne 0"
-echo "    session optional pam_exec.so quiet /usr/local/libexec/oinit-chown-socket"
+# echo "1. Please add the following two lines to '/etc/pam.d/su' in order to allow the"
+# echo "   oinit user to switch to other users without being prompted for a password:"
+# echo ""
+# echo "    auth [success=ignore default=1] pam_succeed_if.so use_uid user = oinit"
+# echo "    auth sufficient                 pam_succeed_if.so uid ne 0"
+
+if ! grep -q "pam_succeed_if.so use_uid user = oinit" /etc/pam.d/su; then
+    echo "auth [success=ignore default=1] pam_succeed_if.so use_uid user = oinit" > /tmp/su
+    echo "auth sufficient                 pam_succeed_if.so uid ne 0 " >> /tmp/su
+    cat /etc/pam.d/su >> /tmp/su
+    mv /tmp/su /etc/pam.d/su
+fi
 
 echo ""
 echo ""
 
-echo "2. Please request an OpenSSH certificate from the oinit CA administrator by"
+echo "1. Please request an OpenSSH certificate from the oinit CA administrator by"
 echo "   sending him/her the file '/etc/ssh/host-key.pub'."
 echo ""
 echo "   You'll get two files in return:"
