@@ -120,13 +120,14 @@ func findForwardedOidcSocket() string {
 		if sshdPid != 0 {
 			sshdInodes := getProcessSocketInodes(sshdPid)
 			for _, c := range candidates {
+				// logf(fmt.Sprintf("[findForwardedOidcSocket: c.path: %s", c.path))
 				if sshdInodes[c.inode] {
 					return c.path
 				}
 			}
-			logf("No inode match for session sshd, falling back to newest socket")
+			// logf("No inode match for session sshd, falling back to newest socket")
 		} else {
-			logf("Could not find session sshd PID, falling back to newest socket")
+			// logf("Could not find session sshd PID, falling back to newest socket")
 		}
 	}
 
@@ -224,7 +225,7 @@ func getProcessSocketInodes(pid int) map[string]bool {
 
 func main() {
 	initFileLog()
-	logf(fmt.Sprintf("[pid %d] invoked with args: %v", os.Getpid(), os.Args[1:]))
+	// logf(fmt.Sprintf("[pid %d] invoked with args: %v", os.Getpid(), os.Args[1:]))
 
 	if len(os.Args) < 2 {
 		fatalf(ERR_NOT_ALLOWED)
@@ -309,9 +310,9 @@ func main() {
 			targetUid, _ := strconv.Atoi(targetUser.Uid)
 			targetGid, _ := strconv.Atoi(targetUser.Gid)
 			if err := os.Chown(socketPath, targetUid, targetGid); err != nil {
-				logf(fmt.Sprintf("[pid %d] Could not chown socket %s to %s: %v", os.Getpid(), socketPath, target, err))
+				logf(fmt.Sprintf("Could not setup oidc-agent forwarding. Chown socket %s to %s: %v failed", socketPath, target, err))
 			} else {
-				logf(fmt.Sprintf("[pid %d] oidc-agent socket-forwarding: %s to user %s (%d:%d)", os.Getpid(), socketPath, target, targetUid, targetGid))
+				logf(fmt.Sprintf("oidc-agent forwarding enabled via %s", socketPath))
 				os.Setenv("OIDC_SOCK", socketPath)
 				suOpts = append(suOpts, "-w", "OIDC_SOCK")
 			}
