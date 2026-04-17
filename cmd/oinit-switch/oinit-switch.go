@@ -151,9 +151,9 @@ func newestOwnedSocket(candidates []unixSocket) string {
 		if !ok || stat.Uid != curUid {
 			continue
 		}
-		ctime := stat.Ctim.Nano()
-		if ctime > newestTime {
-			newestTime = ctime
+		mtime := info.ModTime().UnixNano()
+		if mtime > newestTime {
+			newestTime = mtime
 			newest = c.path
 		}
 	}
