@@ -138,7 +138,7 @@ nfpms:
       oinit is a set of tools to integrate federated identities with
       ssh-certificates. This is the CA package, which uses the openssh
       ssh-ca and adds a REST interface, which allows federated users to
-      authenticate using their federated identitty via OpenID Connect.
+      authenticate using their federated identity via OpenID Connect.
     license: MIT
     section: misc
     formats:
