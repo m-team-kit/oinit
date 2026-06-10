@@ -30,7 +30,10 @@ func main() {
 	command := os.Args[2]
 	argv := strings.Fields(command)
 
-	if !strings.HasPrefix(command, FORCE_COMMAND) || len(argv) < 2 {
+	// Require an exact match on the executable name (argv[0]). A prefix check
+	// on the whole command string would also accept look-alikes such as
+	// "oinit-switch-evil".
+	if len(argv) < 2 || argv[0] != FORCE_COMMAND {
 		log.LogFatal(ERR_PROHIBITED)
 	}
 
