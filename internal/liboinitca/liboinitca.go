@@ -24,6 +24,10 @@ const (
 
 type Client struct {
 	addrs []string
+	// explicitScheme is true when the caller provided the scheme (http:// or
+	// https://) explicitly. When false, addrs was expanded to try https first
+	// and then plaintext http as a fallback.
+	explicitScheme bool
 }
 
 // parseError tries to unmarshal the given response body into
@@ -58,12 +62,14 @@ func NewClient(addr string) Client {
 
 	if strings.Contains(addr, "://") {
 		return Client{
-			addrs: []string{addr},
+			addrs:          []string{addr},
+			explicitScheme: true,
 		}
 	}
 
 	return Client{
-		addrs: []string{"https://" + addr, "http://" + addr},
+		addrs:          []string{"https://" + addr, "http://" + addr},
+		explicitScheme: false,
 	}
 }
 
@@ -118,6 +124,14 @@ func (c Client) PostHostCertificate(host, pubkey, token, issuer string) (api.Api
 	}
 
 	for _, base := range c.addrs {
+		// The request body carries the access token. Never transmit it over
+		// plaintext HTTP that was only chosen as an implicit fallback, so an
+		// attacker cannot force a downgrade by blocking HTTPS. Plaintext is
+		// only used when the operator configured an explicit http:// URL.
+		if !c.explicitScheme && strings.HasPrefix(base, "http://") {
+			continue
+		}
+
 		res, err := http.Post(fmt.Sprintf("%s%s/%s/certificate", base, API_V1, url.PathEscape(host)), "application/json", bytes.NewReader(reqBody))
 		if err != nil {
 			continue
