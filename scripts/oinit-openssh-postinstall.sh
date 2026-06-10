@@ -10,6 +10,13 @@ fi
 # Grant oinit-switch the ability to chown forwarded oidc-agent sockets
 setcap cap_chown=ep /usr/bin/oinit-switch 2>/dev/null || true
 
+# Create a private log directory owned by the oinit user. oinit-switch writes
+# session logs here; keeping it out of world-shared /tmp prevents symlink
+# attacks and session-metadata disclosure.
+mkdir -p /var/log/oinit
+chown oinit /var/log/oinit
+chmod 0750 /var/log/oinit
+
 # Generate host key pair
 mkdir -p /etc/ssh/
 ! test -f /etc/ssh/host-key && ssh-keygen -t ed25519 -f /etc/ssh/host-key -N "" > /dev/null

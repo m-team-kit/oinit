@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"os/user"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"syscall"
@@ -19,7 +20,7 @@ import (
 const (
 	SU_COMMAND  = "su"
 	OINIT_USER  = "oinit"
-	LOG_FILE    = "/tmp/oinit.log"
+	LOG_FILE    = "/var/log/oinit/oinit.log"
 	SYS_UID_MAX = 99
 
 	ERR_NOT_ALLOWED = "This is not allowed."
@@ -29,9 +30,19 @@ const (
 var fileLogger *golog.Logger
 var socketCleanupPath string // set once socket is found; cleaned up on fatal exit
 
-// initFileLog opens /var/log/oinit for append logging. Non-fatal if it fails.
+// oidcSocketRe constrains forwarded oidc-agent socket paths to the exact form
+// created by the client (ssh -R /tmp/oidc-forward-<random>:...). The path is
+// client-controlled and is later passed to os.Chown and concatenated into an
+// "su -c" command, so anything outside this allowlist (shell metacharacters,
+// paths outside /tmp, etc.) is rejected.
+var oidcSocketRe = regexp.MustCompile(`^/tmp/oidc-forward-[0-9]+$`)
+
+// initFileLog opens the oinit log file for append logging. Non-fatal if it
+// fails. The file lives in a root/oinit-owned directory and is opened with
+// O_NOFOLLOW and mode 0600 to prevent a local user from pre-planting a symlink
+// (CWE-59) or reading session metadata via a shared-/tmp file (CWE-377).
 func initFileLog() {
-	f, err := os.OpenFile(LOG_FILE, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	f, err := os.OpenFile(LOG_FILE, os.O_APPEND|os.O_CREATE|os.O_WRONLY|syscall.O_NOFOLLOW, 0600)
 	if err != nil {
 		return
 	}
@@ -102,7 +113,7 @@ func findForwardedOidcSocket() string {
 			continue
 		}
 		path := fields[7]
-		if strings.Contains(path, "oidc-forward") {
+		if oidcSocketRe.MatchString(path) {
 			candidates = append(candidates, unixSocket{
 				inode: fields[6],
 				path:  path,
@@ -121,7 +132,10 @@ func findForwardedOidcSocket() string {
 			sshdInodes := getProcessSocketInodes(sshdPid)
 			for _, c := range candidates {
 				// logf(fmt.Sprintf("[findForwardedOidcSocket: c.path: %s", c.path))
-				if sshdInodes[c.inode] {
+				// Only accept a socket that is both held by this session's
+				// sshd and owned by the current (oinit) user, so a concurrent
+				// session's socket can never be selected and chowned away.
+				if sshdInodes[c.inode] && ownedByCurrentUser(c.path) {
 					return c.path
 				}
 			}
@@ -135,21 +149,30 @@ func findForwardedOidcSocket() string {
 	return newestOwnedSocket(candidates)
 }
 
+// ownedByCurrentUser reports whether the file at path exists and is owned by
+// the current (oinit) user. Symlinks are not followed.
+func ownedByCurrentUser(path string) bool {
+	info, err := os.Lstat(path)
+	if err != nil {
+		return false
+	}
+	stat, ok := info.Sys().(*syscall.Stat_t)
+	return ok && stat.Uid == uint32(os.Getuid())
+}
+
 // newestOwnedSocket returns the path of the most recently created socket
 // from the candidate list that is owned by the current user. Returns ""
 // if none qualify.
 func newestOwnedSocket(candidates []unixSocket) string {
 	var newest string
 	var newestTime int64
-	curUid := uint32(os.Getuid())
 
 	for _, c := range candidates {
-		info, err := os.Lstat(c.path)
-		if err != nil {
+		if !ownedByCurrentUser(c.path) {
 			continue
 		}
-		stat, ok := info.Sys().(*syscall.Stat_t)
-		if !ok || stat.Uid != curUid {
+		info, err := os.Lstat(c.path)
+		if err != nil {
 			continue
 		}
 		mtime := info.ModTime().UnixNano()
