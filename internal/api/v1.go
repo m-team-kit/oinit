@@ -27,6 +27,7 @@ const (
 	ERR_GATEWAY_DOWN   = "motley_cue is not reachable."
 	ERR_UNAUTHORIZED   = "User is not authorized or suspended."
 	ERR_INTERNAL_ERROR = "Internal server error."
+	ERR_RATE_LIMITED   = "Too many requests, please slow down."
 )
 
 type ApiResponseError struct {

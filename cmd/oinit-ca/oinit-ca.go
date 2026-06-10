@@ -16,6 +16,11 @@ const (
 
 	SWAGGER_TITLE = "oinit CA API"
 	SWAGGER_DESC  = "Swagger documentation for the oinit CA REST API."
+
+	// Per-client-IP rate limit for certificate issuance: a small burst for
+	// legitimate retries, with a low sustained rate.
+	CERT_RATE_PER_SEC = 0.5
+	CERT_RATE_BURST   = 5
 )
 
 // ConfigMiddleware is a middleware function that attaches a configuration object
@@ -54,6 +59,15 @@ func main() {
 	gin.SetMode(gin.ReleaseMode)
 
 	router := gin.Default()
+
+	// Only honour X-Forwarded-* headers (used for the real client IP in rate
+	// limiting and logging) from a loopback reverse proxy, matching the
+	// documented nginx deployment. Otherwise a remote client could spoof its
+	// IP to evade per-IP rate limiting.
+	if err := router.SetTrustedProxies([]string{"127.0.0.1", "::1"}); err != nil {
+		log.Fatalln("Error setting trusted proxies: " + err.Error())
+	}
+
 	router.Use(ConfigMiddleware(cfg))
 
 	// Health check endpoint for Docker Compose
@@ -79,7 +93,13 @@ func main() {
 			//  b) must accept an access token (which is a sensitive information better
 			//     transmitted in the request body, not as query parameter).
 			// Therefore this route uses the POST method rather then GET.
-			v1.POST("/:host/certificate", api.PostHostCertificate)
+			//
+			// Rate limit this endpoint per client IP: it forwards a
+			// client-supplied token to motley_cue and signs a certificate, so
+			// it is both expensive and a target for token brute-forcing.
+			v1.POST("/:host/certificate",
+				api.RateLimitMiddleware(CERT_RATE_PER_SEC, CERT_RATE_BURST),
+				api.PostHostCertificate)
 		}
 	}
 
