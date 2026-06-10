@@ -6,6 +6,8 @@ import (
 	"os"
 	"strconv"
 	"strings"
+
+	"golang.org/x/crypto/ssh"
 )
 
 const (
@@ -33,13 +35,25 @@ func GenerateKnownHosts(host, port, pubkey string) (string, error) {
 		combinedHost = "[" + host + "]:" + port
 	}
 
-	// Strip comment from public key if present
-	parts := strings.Split(pubkey, " ")
-	if len(parts) != 2 && len(parts) != 3 {
+	// Reject host names containing whitespace, which would otherwise break the
+	// single-line known_hosts entry.
+	if strings.ContainsAny(combinedHost, " \t\r\n") {
+		return "", errors.New("invalid host")
+	}
+
+	// Parse and re-serialize the key returned by the CA rather than trusting
+	// the raw string. Besides rejecting malformed input, this prevents a
+	// malicious or spoofed CA from injecting additional known_hosts lines
+	// (for example a global "@cert-authority *" that would trust the attacker
+	// for every host) via newlines embedded in the "public key".
+	parsed, _, _, _, err := ssh.ParseAuthorizedKey([]byte(pubkey))
+	if err != nil {
 		return "", errors.New("invalid pubkey format")
 	}
 
-	return "@cert-authority " + combinedHost + " " + strings.Join(parts[0:2], " "), nil
+	key := strings.TrimSuffix(string(ssh.MarshalAuthorizedKey(parsed)), "\n")
+
+	return "@cert-authority " + combinedHost + " " + key, nil
 }
 
 // AddSSHKnownHost adds a "@cert-authority <hostport> <public key>" to the users
