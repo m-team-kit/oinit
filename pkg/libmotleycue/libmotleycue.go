@@ -114,8 +114,9 @@ func parseError(responseBody io.ReadCloser) error {
 			}
 		}
 
-		// Log the full response for debugging
-		log.Printf("[libmotleycue] Full error response: %s", string(body))
+		// Do not log the raw body: an upstream error response may echo the
+		// access token or other sensitive request data. Log only its size.
+		log.Printf("[libmotleycue] Unparseable error response (%d bytes)", len(body))
 
 		// If we can't parse either format, use default error
 		response.Detail = ERR_UNEXPECTED_ERROR
