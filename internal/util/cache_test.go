@@ -1,6 +1,7 @@
 package util
 
 import (
+	"sync"
 	"testing"
 	"time"
 )
@@ -65,6 +66,27 @@ func TestTimedCache_Set(t *testing.T) {
 	if value != 0 {
 		t.Errorf("Expected value to be 0, but got %d", value)
 	}
+}
+
+// TestTimedCache_Concurrent exercises the cache from many goroutines at once.
+// Before locking was added this reliably triggered a "concurrent map writes"
+// fatal panic, which an attacker could provoke remotely via the CA's host
+// cache. Run with -race for full coverage.
+func TestTimedCache_Concurrent(t *testing.T) {
+	cache := NewTimedCache[int, int]()
+
+	var wg sync.WaitGroup
+	for i := 0; i < 100; i++ {
+		wg.Add(1)
+		go func(n int) {
+			defer wg.Done()
+			for j := 0; j < 1000; j++ {
+				cache.Set(n%8, n, time.Duration(10))
+				cache.Get(n % 8)
+			}
+		}(i)
+	}
+	wg.Wait()
 }
 
 func TestTimedCache_SetWithNegativeDuration(t *testing.T) {

@@ -1,6 +1,7 @@
 package util
 
 import (
+	"sync"
 	"time"
 )
 
@@ -23,7 +24,9 @@ func NewTimedCache[K comparable, E any]() *TimedCache[K, E] {
 	}
 }
 
+// TimedCache is safe for concurrent use by multiple goroutines.
 type TimedCache[K comparable, E any] struct {
+	mu      sync.Mutex
 	entries map[K]timedCacheEntry[E]
 }
 
@@ -48,8 +51,11 @@ type timedCacheEntry[E any] struct {
 //	// 'value' will be 42, and 'exists' will be 'true' within the specified
 //	// duration of 10 seconds, otherwise 'value' will be the zero value of int
 //	// (0) and 'exists' will be 'false'.
-func (c TimedCache[K, E]) Get(key K) (E, bool) {
+func (c *TimedCache[K, E]) Get(key K) (E, bool) {
 	var content E
+
+	c.mu.Lock()
+	defer c.mu.Unlock()
 
 	entry, ok := c.entries[key]
 	if !ok {
@@ -78,7 +84,10 @@ func (c TimedCache[K, E]) Get(key K) (E, bool) {
 //	cache.Set("key1", 42, 10*time.Second)
 //	// The value 42 is associated with "key1" and will be valid for 10 seconds.
 //	// After that, using 'cache.Get("key1")' will return 'false'.
-func (c TimedCache[K, E]) Set(key K, content E, duration time.Duration) {
+func (c *TimedCache[K, E]) Set(key K, content E, duration time.Duration) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
 	c.entries[key] = timedCacheEntry[E]{
 		content: content,
 		expires: time.Now().Add(duration * time.Second),
