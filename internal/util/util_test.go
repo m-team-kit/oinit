@@ -73,6 +73,26 @@ func TestMatchesHost(t *testing.T) {
 			},
 			matches: false,
 		},
+		{
+			// Look-alike domain must not match the wildcard.
+			args: args{
+				host:  "evilexample.com",
+				port:  "22",
+				host2: "*.example.com",
+				port2: "22",
+			},
+			matches: false,
+		},
+		{
+			// Deeper subdomains still match.
+			args: args{
+				host:  "a.b.example.com",
+				port:  "22",
+				host2: "*.example.com",
+				port2: "22",
+			},
+			matches: true,
+		},
 	}
 
 	for _, tt := range tests {

@@ -24,7 +24,10 @@ func MatchesHost(host string, port string, host2 string, port2 string) bool {
 	if strings.HasPrefix(host2, "*.") {
 		root, _ := strings.CutPrefix(host2, "*.")
 
-		return strings.HasSuffix(host, root) && host != root && port == port2
+		// Require a label boundary so "*.example.com" matches
+		// "sub.example.com" but neither "example.com" itself nor
+		// look-alikes such as "evilexample.com".
+		return strings.HasSuffix(host, "."+root) && port == port2
 	} else {
 		return host == host2 && port == port2
 	}
