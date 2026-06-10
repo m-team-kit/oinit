@@ -78,6 +78,59 @@ func (writer customLog) Write(bytes []byte) (int, error) {
 
 var cache = util.NewTimedCache[string, []Provider]()
 
+// resolveProviders returns the OpenID Connect providers advertised by the
+// host's motley_cue instance, using a short-lived cache. Only issuers that are
+// both listed in SupportedOPs and have scope info are returned.
+func resolveProviders(info config.HostInfo) ([]Provider, error) {
+	if providers, ok := cache.Get(info.URL); ok {
+		return providers, nil
+	}
+
+	hostInfo, err := libmotleycue.NewClient(info.URL).GetInfo()
+	if err != nil {
+		return nil, err
+	}
+
+	var providers []Provider
+	// Iterate OpsInfo instead of SupportedOPs to only add hosts for which
+	// scopes are defined. Validate that issuer is listed in SupportedOPs
+	// however.
+	for issuer, opInfo := range hostInfo.OpsInfo {
+		if slices.Contains(hostInfo.SupportedOPs, issuer) {
+			providers = append(providers, Provider{
+				URL:    issuer,
+				Scopes: opInfo.Scopes,
+			})
+		}
+	}
+
+	cache.Set(info.URL, providers, time.Duration(info.CacheDuration))
+	return providers, nil
+}
+
+// isSupportedIssuer reports whether the given issuer URL is one advertised by
+// the host's motley_cue instance. This gates outbound requests made with an
+// issuer that may have been supplied by the client (e.g. for opaque tokens),
+// preventing the CA from being used as an SSRF vector.
+func isSupportedIssuer(info config.HostInfo, issuer string) bool {
+	if issuer == "" {
+		return false
+	}
+
+	providers, err := resolveProviders(info)
+	if err != nil {
+		return false
+	}
+
+	for _, p := range providers {
+		if p.URL == issuer {
+			return true
+		}
+	}
+
+	return false
+}
+
 // GetIndex is the handler for GET /
 //
 //	@Summary		Get API version
@@ -160,28 +213,11 @@ func GetHost(c *gin.Context) {
 		return
 	}
 
-	providers, ok := cache.Get(info.URL)
-	if !ok {
-		hostInfo, err := libmotleycue.NewClient(info.URL).GetInfo()
-		if err != nil {
-			log.Printf("Error connecting to motley_cue: %s", err)
-			Error(c, http.StatusBadGateway, ERR_GATEWAY_DOWN)
-			return
-		}
-
-		// Iterate OpsInfo instead of SupportedOPs to only add hosts for which
-		// scopes are defined. Validate that issuer is listed in SupportedOPs
-		// however.
-		for issuer, info := range hostInfo.OpsInfo {
-			if slices.Contains(hostInfo.SupportedOPs, issuer) {
-				providers = append(providers, Provider{
-					URL:    issuer,
-					Scopes: info.Scopes,
-				})
-			}
-		}
-
-		cache.Set(info.URL, providers, time.Duration(info.CacheDuration))
+	providers, err := resolveProviders(info)
+	if err != nil {
+		log.Printf("Error connecting to motley_cue: %s", err)
+		Error(c, http.StatusBadGateway, ERR_GATEWAY_DOWN)
+		return
 	}
 
 	c.JSON(http.StatusOK, ApiResponseHost{
@@ -336,16 +372,25 @@ func PostHostCertificate(c *gin.Context) {
 		log.Printf("Retrieved subject from motley_cue: %s", subject)
 	}
 
-	// 3: use client-provided issuer (for non-JWT/opaque tokens)
+	// 3: use client-provided issuer (for non-JWT/opaque tokens). Only accept
+	// it if motley_cue advertises it as a supported provider, so a client
+	// cannot point the CA at an arbitrary issuer URL.
 	if issuer == "unknown" && body.Issuer != "" {
-		issuer = body.Issuer
-		log.Printf("Retrieved issuer from client request: %s", issuer)
+		if isSupportedIssuer(info, body.Issuer) {
+			issuer = body.Issuer
+			log.Printf("Retrieved issuer from client request: %s", issuer)
+		} else {
+			log.Printf("Ignoring unsupported client-provided issuer: %s", body.Issuer)
+		}
 	}
 
 	// 4: if subject is still unknown but we have an issuer, try the
 	// userinfo endpoint to obtain the subject claim. This is needed
-	// for opaque (non-JWT) access tokens.
-	if subject == "unknown" && issuer != "unknown" {
+	// for opaque (non-JWT) access tokens. The userinfo lookup performs an
+	// outbound HTTP request to the issuer, so only do it for issuers that
+	// motley_cue advertises (defence-in-depth against SSRF, even though a
+	// JWT-derived issuer is already trustworthy).
+	if subject == "unknown" && issuer != "unknown" && isSupportedIssuer(info, issuer) {
 		if sub, err := oidcutil.LookupSubject(issuer, body.Token); err == nil {
 			subject = sub
 			log.Printf("Retrieved subject from userinfo endpoint: %s", subject)
