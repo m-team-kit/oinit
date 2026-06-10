@@ -1,10 +1,16 @@
 #!/bin/bash
 
-BASEDIR=/go/src/github.com/lbrocke/oinit
-# check version of goreleaser
-docker images | grep goreleaser
-# update goreleaser
-docker pull goreleaser/goreleaser
+# Run goreleaser directly against the CI checkout.
+#
+# Previously this wrapped goreleaser in a nested "docker run -v $PWD:...". That
+# bind mount is resolved by the Docker daemon (dind service / host socket),
+# whose filesystem does not contain the GitLab checkout at $CI_PROJECT_DIR, so
+# goreleaser started in an empty directory and failed intermittently with
+# "not a git repository" / "could not find a configuration file".
+#
+# The package stage needs no Docker daemon (the dockers section in
+# .goreleaser.yaml is disabled and we pass --skip docker), so goreleaser is
+# run natively in the goreleaser image instead.
 
 GORELEASER_OPTIONS=""
 [[ "${CI_COMMIT_BRANCH}" != "${CI_DEFAULT_BRANCH}" ]] && {
@@ -13,6 +19,7 @@ GORELEASER_OPTIONS=""
         GORELEASER_OPTIONS=""
     }
 }
+
 echo "PWD: ${PWD}"
 echo "git status:"
 git status
@@ -21,20 +28,11 @@ ls -la
 echo -e "--------------- /files -----------------"
 
 echo -e "--------------- version -----------------"
-docker run --rm --privileged \
-  -v "$PWD":"$BASEDIR" \
-  -w "$BASEDIR" \
-  -v /var/run/docker.sock:/var/run/docker.sock \
-  goreleaser/goreleaser --version
+goreleaser --version
 
 echo -e "--------------- running -----------------"
-echo "    goreleaser/goreleaser release --skip publish --skip docker --verbose  ${GORELEASER_OPTIONS}"
+echo "    goreleaser release --skip publish --skip docker --verbose ${GORELEASER_OPTIONS}"
 
 # run goreleaser to build packages
-docker run --rm --privileged \
-  -v "$PWD":"$BASEDIR" \
-  -w "$BASEDIR" \
-  -v /var/run/docker.sock:/var/run/docker.sock \
-  goreleaser/goreleaser release --skip publish --skip docker --verbose \
-    ${GORELEASER_OPTIONS}
-# do not add commands here, script exists with status of last command
+goreleaser release --skip publish --skip docker --verbose ${GORELEASER_OPTIONS}
+# do not add commands here, script exits with status of last command

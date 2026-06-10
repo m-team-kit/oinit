@@ -73,10 +73,14 @@ oinit-switch:
 
 package:
   stage: package
+  # Run goreleaser natively (no nested "docker run"). The package stage needs
+  # no Docker daemon: the dockers section in .goreleaser.yaml is disabled and
+  # the job passes --skip docker. Running natively also means goreleaser sees
+  # the real CI checkout (with its .git and .goreleaser.yaml) instead of an
+  # empty bind-mount resolved by a daemon that cannot see $CI_PROJECT_DIR.
   image:
-    name: docker:stable
-  services:
-    - docker:dind
+    name: goreleaser/goreleaser:latest
+    entrypoint: [""]
   # only:
   #   refs:
   #     - tags
@@ -89,7 +93,10 @@ package:
     REPO_HOST: repo.data.kit.edu
     REPO_USER: cicd
   before_script:
-    - apk add bash git
+    - apk add --no-cache bash git
+    # goreleaser now runs git natively in the checkout; avoid "dubious
+    # ownership" failures when the workdir is owned by a different uid.
+    - git config --global --add safe.directory "$CI_PROJECT_DIR"
   script:
     - |
       echo "CI_COMMIT_TAG: $CI_COMMIT_TAG"
