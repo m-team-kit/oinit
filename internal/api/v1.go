@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 
@@ -66,6 +67,16 @@ func Error(c *gin.Context, code int, msg string) {
 	c.JSON(code, ApiResponseError{
 		Error: msg,
 	})
+}
+
+// debugf logs only when OINIT_DEBUG is set. It is used for verbose,
+// step-by-step identity resolution traces (issuer/subject from each source)
+// that are redundant with the single audit line emitted per issued
+// certificate. Gating them keeps personal data (sub/iss) out of normal logs.
+func debugf(format string, args ...interface{}) {
+	if os.Getenv("OINIT_DEBUG") != "" {
+		log.Printf(format, args...)
+	}
 }
 
 type customLog struct {
@@ -347,7 +358,7 @@ func PostHostCertificate(c *gin.Context) {
 				if iss, exists := claims["iss"]; exists {
 					if issStr, ok := iss.(string); ok {
 						issuer = issStr
-						log.Printf("Retrieved issuer from JWT: %s", issuer)
+						debugf("Retrieved issuer from JWT: %s", issuer)
 					}
 				}
 			}
@@ -355,7 +366,7 @@ func PostHostCertificate(c *gin.Context) {
 				if sub, exists := claims["sub"]; exists {
 					if subStr, ok := sub.(string); ok {
 						subject = subStr
-						log.Printf("Retrieved subject from JWT: %s", subject)
+						debugf("Retrieved subject from JWT: %s", subject)
 					}
 				}
 			}
@@ -365,11 +376,11 @@ func PostHostCertificate(c *gin.Context) {
 	// 2: use motley_cue response fields if available
 	if issuer == "unknown" && status.Iss != "" {
 		issuer = status.Iss
-		log.Printf("Retrieved issuer from motley_cue: %s", issuer)
+		debugf("Retrieved issuer from motley_cue: %s", issuer)
 	}
 	if subject == "unknown" && status.Sub != "" {
 		subject = status.Sub
-		log.Printf("Retrieved subject from motley_cue: %s", subject)
+		debugf("Retrieved subject from motley_cue: %s", subject)
 	}
 
 	// 3: use client-provided issuer (for non-JWT/opaque tokens). Only accept
@@ -378,7 +389,7 @@ func PostHostCertificate(c *gin.Context) {
 	if issuer == "unknown" && body.Issuer != "" {
 		if isSupportedIssuer(info, body.Issuer) {
 			issuer = body.Issuer
-			log.Printf("Retrieved issuer from client request: %s", issuer)
+			debugf("Retrieved issuer from client request: %s", issuer)
 		} else {
 			log.Printf("Ignoring unsupported client-provided issuer: %s", body.Issuer)
 		}
@@ -393,7 +404,7 @@ func PostHostCertificate(c *gin.Context) {
 	if subject == "unknown" && issuer != "unknown" && isSupportedIssuer(info, issuer) {
 		if sub, err := oidcutil.LookupSubject(issuer, body.Token); err == nil {
 			subject = sub
-			log.Printf("Retrieved subject from userinfo endpoint: %s", subject)
+			debugf("Retrieved subject from userinfo endpoint: %s", subject)
 		} else {
 			log.Printf("Userinfo lookup failed: %s", err)
 		}
