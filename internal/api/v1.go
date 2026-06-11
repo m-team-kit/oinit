@@ -6,6 +6,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"regexp"
 	"strings"
 	"time"
 
@@ -30,6 +31,20 @@ const (
 	ERR_INTERNAL_ERROR = "Internal server error."
 	ERR_RATE_LIMITED   = "Too many requests, please slow down."
 )
+
+// usernameRe matches a plain POSIX-style local username (the shadow
+// useradd default NAME_REGEX, with case allowed). The resolved username is
+// embedded into the certificate principals and the force-command
+// ("oinit-switch <username>"); restricting it to this set ensures it cannot
+// contain whitespace or other characters that would change how oinit-shell
+// splits the forced command or which account oinit-switch selects.
+var usernameRe = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_-]*\$?$`)
+
+// isValidUsername reports whether name is a safe local username to embed into a
+// certificate's principals and force-command.
+func isValidUsername(name string) bool {
+	return len(name) > 0 && len(name) <= 32 && usernameRe.MatchString(name)
+}
 
 type ApiResponseError struct {
 	Error string `json:"error"`
@@ -420,6 +435,25 @@ func PostHostCertificate(c *gin.Context) {
 	} else {
 		certDuration = info.CertValidityFallback
 		log.Printf("Using fallback certDuration: %ds", certDuration)
+	}
+
+	// Guard against a non-positive duration. uint64(negative) would wrap to an
+	// enormous value and yield a practically non-expiring certificate, so
+	// refuse rather than issue something unbounded.
+	if certDuration <= 0 {
+		log.Printf("Refusing to issue certificate with non-positive duration: %ds", certDuration)
+		Error(c, http.StatusInternalServerError, ERR_INTERNAL_ERROR)
+		return
+	}
+
+	// The resolved username is embedded into the certificate principals and the
+	// force-command. Reject anything that is not a plain POSIX username so it
+	// cannot alter how the forced command is parsed or which account
+	// oinit-switch ultimately selects.
+	if !isValidUsername(username) {
+		log.Printf("Refusing to issue certificate for invalid username: %q", username)
+		Error(c, http.StatusInternalServerError, ERR_INTERNAL_ERROR)
+		return
 	}
 
 	// Resolve principals from config template, replacing $provisioned-user.
