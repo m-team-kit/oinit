@@ -32,13 +32,14 @@ const (
 	ERR_RATE_LIMITED   = "Too many requests, please slow down."
 )
 
-// usernameRe matches a plain POSIX-style local username (the shadow
-// useradd default NAME_REGEX, with case allowed). The resolved username is
-// embedded into the certificate principals and the force-command
-// ("oinit-switch <username>"); restricting it to this set ensures it cannot
-// contain whitespace or other characters that would change how oinit-shell
-// splits the forced command or which account oinit-switch selects.
-var usernameRe = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_-]*\$?$`)
+// usernameRe matches a plain lowercase POSIX-style local username. The
+// resolved username is embedded into the certificate principals and the
+// force-command ("oinit-switch <username>"); restricting it to this set
+// ensures it cannot contain whitespace or other characters that would change
+// how oinit-shell splits the forced command or which account oinit-switch
+// selects. Uppercase and Samba machine-account trailing "$" are intentionally
+// disallowed.
+var usernameRe = regexp.MustCompile(`^[a-z_][a-z0-9_-]*$`)
 
 // isValidUsername reports whether name is a safe local username to embed into a
 // certificate's principals and force-command.

@@ -12,11 +12,10 @@ func TestIsValidUsername(t *testing.T) {
 		{"with digits", "alice42", true},
 		{"underscore start", "_svc", true},
 		{"dash and underscore", "a-b_c", true},
-		{"samba trailing dollar", "machine$", true},
-		{"uppercase", "Alice", true},
 		{"max length 32", "abcdefghijklmnopqrstuvwxyz012345", true},
-
 		{"empty", "", false},
+		{"uppercase", "Alice", false},
+		{"samba trailing dollar", "machine$", false},
 		{"digit start", "1alice", false},
 		{"dash start", "-alice", false},
 		{"space inside", "alice bob", false},
