@@ -52,6 +52,34 @@ When running `oinit add <host>`, the CA is auto-discovered via:
 
 Results are cached (5 min success, 1 min failure) using the generic `TimedCache`.
 
+## Security considerations
+
+A few properties of the design are worth being explicit about for operators:
+
+- **CA discovery is trust-on-first-use.** `oinit add <host>` accepts whatever CA
+  a DNS TXT record (or, as a fallback, an HTTPS probe) points to. The DNS lookup
+  itself is not authenticated, so without DNSSEC an attacker who can spoof DNS
+  responses during the first `oinit add` can substitute their own CA. The host CA
+  public key returned by that CA is then pinned into `known_hosts`, so the window
+  is the initial discovery. Prefer specifying the CA explicitly
+  (`oinit add <host> <ca>`) or relying on DNSSEC for the discovery domain.
+
+- **Issued certificates permit port and agent forwarding.** The user certificate
+  carries the `permit-port-forwarding` and `permit-agent-forwarding` extensions.
+  This is **required** for the oidc-agent socket forwarding feature (which uses
+  SSH remote port forwarding), so it cannot be disabled without removing that
+  feature. Operators who do not need agent forwarding and want to restrict
+  tunnelling should enforce it server-side (e.g. `AllowTcpForwarding`,
+  `PermitOpen` in `sshd_config`) rather than relying on the certificate.
+
+- **The CA's userinfo lookup follows HTTP redirects.** When resolving the subject
+  for opaque (non-JWT) tokens, the CA contacts the issuer's discovery and
+  userinfo endpoints. The issuer is restricted to the providers advertised by the
+  host's motley_cue instance (so it cannot be pointed at an arbitrary address),
+  but the resulting requests still follow redirects. This is low risk given the
+  issuer allowlist, but means a compromised or misconfigured trusted IdP could
+  redirect those specific requests.
+
 ## Configuration
 
 See `configs/config.sample.ini` for the CA config format. Key settings per host group: `host-ca-privkey`, `host-ca-pubkey`, `user-ca-privkey`, `user-ca-pubkey`, `cert-validity` (seconds or `"token"`), `cert-validity-fallback`, `cache-duration`. The `listen-address` can also be set in the default section or overridden via `-l` flag.
