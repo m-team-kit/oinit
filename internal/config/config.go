@@ -31,6 +31,7 @@ type DefaultOptions struct {
 	ProvisionUser        string `ini:"provision-user"`
 	DefaultUser          string `ini:"default-user"`
 	ForceCommand         string `ini:"force-command"`
+	AllowRoot            string `ini:"allow-root"`
 }
 
 type Keys struct {
@@ -47,6 +48,7 @@ type HostGroup struct {
 	Name             string
 	Hosts            map[string]string
 	ProvisionUserVal bool
+	AllowRootVal     bool
 }
 
 type Config struct {
@@ -65,6 +67,7 @@ type HostInfo struct {
 	ProvisionUser        bool
 	DefaultUser          string
 	ForceCommand         string
+	AllowRoot            bool
 	Keys
 }
 
@@ -101,6 +104,7 @@ func Load(path string) (Config, error) {
 			ProvisionUser:        defOptions.ProvisionUser,
 			DefaultUser:          defOptions.DefaultUser,
 			ForceCommand:         defOptions.ForceCommand,
+			AllowRoot:            defOptions.AllowRoot,
 		}
 
 		if err := hostgroup.MapTo(opts); err != nil {
@@ -121,7 +125,8 @@ func Load(path string) (Config, error) {
 				key == "cache-duration" ||
 				key == "listen-address" ||
 				key == "cert-principals" || key == "provision-user" ||
-				key == "default-user" || key == "force-command" {
+				key == "default-user" || key == "force-command" ||
+				key == "allow-root" {
 				continue
 			}
 
@@ -155,6 +160,18 @@ func Load(path string) (Config, error) {
 				return conf, fmt.Errorf("invalid provision-user value in hostgroup %s: %s", hg.Name, hg.ProvisionUser)
 			}
 			hg.ProvisionUserVal = val
+		}
+
+		// allow-root gates whether a certificate whose resolved username is
+		// "root" may be issued for this host group. Default: false (deny).
+		if hg.AllowRoot == "" {
+			hg.AllowRootVal = false
+		} else {
+			val, err := strconv.ParseBool(hg.AllowRoot)
+			if err != nil {
+				return conf, fmt.Errorf("invalid allow-root value in hostgroup %s: %s", hg.Name, hg.AllowRoot)
+			}
+			hg.AllowRootVal = val
 		}
 
 		// Validate: if provisioning is disabled, a default-user must be set
@@ -290,6 +307,7 @@ func (c Config) GetInfo(host string) (HostInfo, error) {
 					ProvisionUser:        hostGroup.ProvisionUserVal,
 					DefaultUser:          hostGroup.DefaultUser,
 					ForceCommand:         hostGroup.ForceCommand,
+					AllowRoot:            hostGroup.AllowRootVal,
 					Keys:                 hostGroup.Keys,
 				}, nil
 			}

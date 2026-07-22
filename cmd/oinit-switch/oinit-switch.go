@@ -302,8 +302,12 @@ func main() {
 		fatalf(ERR_NOT_ALLOWED)
 	}
 
-	// Find the first allowed user that is a different, non-system
-	// user and switch to them via su.
+	// Find the first allowed user that is a different, non-system user and
+	// switch to them via su. root (uid 0) is the one system account permitted
+	// as a target: it is only ever present as a certificate principal when the
+	// CA was explicitly configured with allow-root, and the su itself still
+	// requires PAM to permit the oinit -> root switch. All other system users
+	// (uid 1..SYS_UID_MAX-1) remain blocked as defence-in-depth.
 	var target string
 	for _, u := range allowedUsers {
 		uid, err := getUid(u)
@@ -313,7 +317,7 @@ func main() {
 		if uid == curUid {
 			continue
 		}
-		if uid < SYS_UID_MAX {
+		if uid != 0 && uid < SYS_UID_MAX {
 			logf(fmt.Sprintf("skipping system user %s (uid %d)", u, uid))
 			continue
 		}

@@ -457,6 +457,16 @@ func PostHostCertificate(c *gin.Context) {
 		return
 	}
 
+	// Issuing a certificate for the root account is a privileged, dangerous
+	// operation and is therefore gated behind the per-host-group allow-root
+	// option (default: deny). The server-side oinit-switch and PAM must also be
+	// configured to permit the oinit -> root switch for the login to succeed.
+	if username == "root" && !info.AllowRoot {
+		log.Printf("Refusing to issue root certificate: allow-root is not enabled for host %q", host.Host)
+		Error(c, http.StatusForbidden, ERR_UNAUTHORIZED)
+		return
+	}
+
 	// Resolve principals from config template, replacing $provisioned-user.
 	// The "oinit" service user is always included as a certificate principal
 	// but is not part of $cert-principals (used in force-command).
