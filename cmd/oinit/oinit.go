@@ -429,8 +429,8 @@ func handleCommandMatch(args []string) {
 		log.LogDebugTTY("Searching token in BEARER_TOKEN_FILE")
 		token_file := util.Getenvs("BEARER_TOKEN_FILE")
 		if token_file != "" {
-			if tokenData, err := os.ReadFile(token_file); err == nil {
-				token = strings.TrimSpace(string(tokenData))
+			if tok, ok := readTokenFile(token_file); ok {
+				token = tok
 				log.LogDebugTTY("Using token from file: " + token_file)
 			}
 		}
@@ -442,8 +442,8 @@ func handleCommandMatch(args []string) {
 		if xdgRuntimeDir != "" {
 			userID := os.Getuid()
 			tokenFile := filepath.Join(xdgRuntimeDir, fmt.Sprintf("bt_u%d", userID))
-			if tokenData, err := os.ReadFile(tokenFile); err == nil {
-				token = strings.TrimSpace(string(tokenData))
+			if tok, ok := readTokenFile(tokenFile); ok {
+				token = tok
 				log.LogDebugTTY("Using token from file: " + tokenFile)
 			}
 		}
@@ -453,8 +453,8 @@ func handleCommandMatch(args []string) {
 		log.LogDebugTTY("Searching token in /tmp/bt_u$ID")
 		userID := os.Getuid()
 		tokenFile := fmt.Sprintf("/tmp/bt_u%d", userID)
-		if tokenData, err := os.ReadFile(tokenFile); err == nil {
-			token = strings.TrimSpace(string(tokenData))
+		if tok, ok := readTokenFile(tokenFile); ok {
+			token = tok
 			log.LogDebugTTY("Using token from file: " + tokenFile)
 		}
 	}
