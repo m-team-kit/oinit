@@ -30,6 +30,27 @@ type Client struct {
 	explicitScheme bool
 }
 
+// httpClient is used for all CA requests. It refuses to follow redirects: the
+// CA API lives at a fixed endpoint, and a followed 307/308 redirect would
+// re-send the request body (which carries the access token) to the redirect
+// target, allowing an https->http downgrade that leaks the token. A redirect
+// therefore surfaces as a 3xx status and the request fails cleanly instead.
+var httpClient = &http.Client{
+	CheckRedirect: func(*http.Request, []*http.Request) error {
+		return http.ErrUseLastResponse
+	},
+}
+
+// skipPlaintext reports whether the given base URL must not be used because it
+// is a plaintext http:// endpoint that was only chosen as an implicit fallback.
+// An attacker who can block HTTPS must not be able to force a downgrade that
+// transmits the access token (or fetches the trust anchor) in cleartext.
+// Plaintext is only honoured when the operator configured an explicit http://
+// URL.
+func (c Client) skipPlaintext(base string) bool {
+	return !c.explicitScheme && strings.HasPrefix(base, "http://")
+}
+
 // parseError tries to unmarshal the given response body into
 // ApiResponseError and returns the enclosed error message as a new error. If
 // reading from responseBody or unmarshalling fails, this function return a
@@ -78,7 +99,15 @@ func (c Client) GetHost(host string) (api.ApiResponseHost, error) {
 	var response api.ApiResponseHost
 
 	for _, base := range c.addrs {
-		res, err := http.Get(fmt.Sprintf("%s%s/%s", base, API_V1, url.PathEscape(host)))
+		// The response carries the CA host public key that is installed as a
+		// known_hosts trust anchor. Never fetch it over a plaintext channel
+		// chosen only as an implicit fallback, so a forced HTTPS failure
+		// cannot downgrade the trust anchor to an attacker-served value.
+		if c.skipPlaintext(base) {
+			continue
+		}
+
+		res, err := httpClient.Get(fmt.Sprintf("%s%s/%s", base, API_V1, url.PathEscape(host)))
 		if err != nil {
 			continue
 		}
@@ -128,11 +157,11 @@ func (c Client) PostHostCertificate(host, pubkey, token, issuer string) (api.Api
 		// plaintext HTTP that was only chosen as an implicit fallback, so an
 		// attacker cannot force a downgrade by blocking HTTPS. Plaintext is
 		// only used when the operator configured an explicit http:// URL.
-		if !c.explicitScheme && strings.HasPrefix(base, "http://") {
+		if c.skipPlaintext(base) {
 			continue
 		}
 
-		res, err := http.Post(fmt.Sprintf("%s%s/%s/certificate", base, API_V1, url.PathEscape(host)), "application/json", bytes.NewReader(reqBody))
+		res, err := httpClient.Post(fmt.Sprintf("%s%s/%s/certificate", base, API_V1, url.PathEscape(host)), "application/json", bytes.NewReader(reqBody))
 		if err != nil {
 			continue
 		}
