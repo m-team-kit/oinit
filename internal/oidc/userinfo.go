@@ -6,15 +6,42 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 )
 
 const (
-	WELL_KNOWN_PATH    = "/.well-known/openid-configuration"
-	USERINFO_TIMEOUT   = 10 * time.Second
-	MAX_RESPONSE_SIZE  = 64 * 1024 // 64KB
+	WELL_KNOWN_PATH   = "/.well-known/openid-configuration"
+	USERINFO_TIMEOUT  = 10 * time.Second
+	MAX_RESPONSE_SIZE = 64 * 1024 // 64KB
 )
+
+// httpClient is used for discovery and userinfo requests. It refuses to follow
+// redirects: the userinfo request carries the user's Bearer access token, and a
+// followed redirect could bounce that token to an attacker-controlled or
+// plaintext location (an https->http downgrade). A redirect therefore surfaces
+// as a non-200 status and the request fails cleanly instead.
+var httpClient = &http.Client{
+	Timeout: USERINFO_TIMEOUT,
+	CheckRedirect: func(*http.Request, []*http.Request) error {
+		return http.ErrUseLastResponse
+	},
+}
+
+// requireHTTPS returns an error unless rawURL is a well-formed https:// URL.
+// The access token must never traverse a plaintext channel, so both the issuer
+// and the discovered userinfo endpoint are required to use TLS.
+func requireHTTPS(rawURL string) error {
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return fmt.Errorf("invalid URL %q: %w", rawURL, err)
+	}
+	if u.Scheme != "https" {
+		return fmt.Errorf("URL must use https, got %q", rawURL)
+	}
+	return nil
+}
 
 // OpenIDConfiguration represents the relevant fields from an OpenID Connect
 // discovery document.
@@ -56,11 +83,14 @@ func LookupSubject(issuerURL string, accessToken string) (string, error) {
 // discoverUserinfoEndpoint fetches the OpenID Connect discovery document and
 // extracts the userinfo_endpoint.
 func discoverUserinfoEndpoint(issuerURL string) (string, error) {
+	if err := requireHTTPS(issuerURL); err != nil {
+		return "", fmt.Errorf("issuer: %w", err)
+	}
+
 	issuerURL = strings.TrimSuffix(issuerURL, "/")
 	discoveryURL := issuerURL + WELL_KNOWN_PATH
 
-	client := &http.Client{Timeout: USERINFO_TIMEOUT}
-	resp, err := client.Get(discoveryURL)
+	resp, err := httpClient.Get(discoveryURL)
 	if err != nil {
 		return "", fmt.Errorf("GET %s: %w", discoveryURL, err)
 	}
@@ -83,6 +113,12 @@ func discoverUserinfoEndpoint(issuerURL string) (string, error) {
 	if config.UserinfoEndpoint == "" {
 		return "", errors.New("discovery document does not contain userinfo_endpoint")
 	}
+	// The discovery document is attacker-influenced if the provider is
+	// compromised or MITM'd; never send the access token to a plaintext
+	// userinfo endpoint it advertises.
+	if err := requireHTTPS(config.UserinfoEndpoint); err != nil {
+		return "", fmt.Errorf("userinfo_endpoint: %w", err)
+	}
 
 	return config.UserinfoEndpoint, nil
 }
@@ -90,15 +126,13 @@ func discoverUserinfoEndpoint(issuerURL string) (string, error) {
 // fetchUserinfo calls the userinfo endpoint with the given access token and
 // returns the subject claim.
 func fetchUserinfo(userinfoURL string, accessToken string) (string, error) {
-	client := &http.Client{Timeout: USERINFO_TIMEOUT}
-
 	req, err := http.NewRequest(http.MethodGet, userinfoURL, nil)
 	if err != nil {
 		return "", err
 	}
 	req.Header.Set("Authorization", "Bearer "+accessToken)
 
-	resp, err := client.Do(req)
+	resp, err := httpClient.Do(req)
 	if err != nil {
 		return "", fmt.Errorf("GET %s: %w", userinfoURL, err)
 	}
