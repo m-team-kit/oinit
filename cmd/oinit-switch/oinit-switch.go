@@ -125,28 +125,42 @@ func findForwardedOidcSocket() string {
 		return ""
 	}
 
-	// Try to match by inode against our session's sshd
-	if len(candidates) > 1 {
-		sshdPid := findSessionSshdPid()
-		if sshdPid != 0 {
-			sshdInodes := getProcessSocketInodes(sshdPid)
-			for _, c := range candidates {
-				// logf(fmt.Sprintf("[findForwardedOidcSocket: c.path: %s", c.path))
-				// Only accept a socket that is both held by this session's
-				// sshd and owned by the current (oinit) user, so a concurrent
-				// session's socket can never be selected and chowned away.
-				if sshdInodes[c.inode] && ownedByCurrentUser(c.path) {
-					return c.path
-				}
-			}
-			// logf("No inode match for session sshd, falling back to newest socket")
-		} else {
-			// logf("Could not find session sshd PID, falling back to newest socket")
-		}
+	// Bind the socket to THIS session by verifying its inode is held open by
+	// this session's own sshd process. Every forwarded oidc socket is owned by
+	// the oinit service user, so ownership alone cannot tell two concurrent
+	// sessions apart: selecting by recency — or blindly trusting a lone
+	// candidate — would let one session pick, and later chown away, another
+	// user's forwarded socket, hijacking that user's oidc-agent. If this
+	// session's sshd or a socket it holds cannot be positively identified,
+	// disable forwarding (fail closed) rather than risk selecting the wrong
+	// socket.
+	sshdPid := findSessionSshdPid()
+	if sshdPid == 0 {
+		logf("Could not identify this session's sshd process; disabling oidc-agent forwarding")
+		return ""
 	}
 
-	// Fall back to the newest socket owned by the current user
-	return newestOwnedSocket(candidates)
+	sshdInodes := getProcessSocketInodes(sshdPid)
+	if path := selectSessionSocket(candidates, sshdInodes, ownedByCurrentUser); path != "" {
+		return path
+	}
+
+	logf("No forwarded oidc-agent socket belongs to this session; disabling forwarding")
+	return ""
+}
+
+// selectSessionSocket returns the candidate socket that both belongs to this
+// session's sshd (its inode is among sshdInodes) and is owned by the current
+// user (owned(path) is true), or "" if none qualifies. Both conditions are
+// required: inode membership binds the socket to this session, and the
+// ownership check guards against a path swapped for one not owned by us.
+func selectSessionSocket(candidates []unixSocket, sshdInodes map[string]bool, owned func(string) bool) string {
+	for _, c := range candidates {
+		if sshdInodes[c.inode] && owned(c.path) {
+			return c.path
+		}
+	}
+	return ""
 }
 
 // ownedByCurrentUser reports whether the file at path exists and is owned by
@@ -160,32 +174,9 @@ func ownedByCurrentUser(path string) bool {
 	return ok && stat.Uid == uint32(os.Getuid())
 }
 
-// newestOwnedSocket returns the path of the most recently created socket
-// from the candidate list that is owned by the current user. Returns ""
-// if none qualify.
-func newestOwnedSocket(candidates []unixSocket) string {
-	var newest string
-	var newestTime int64
-
-	for _, c := range candidates {
-		if !ownedByCurrentUser(c.path) {
-			continue
-		}
-		info, err := os.Lstat(c.path)
-		if err != nil {
-			continue
-		}
-		mtime := info.ModTime().UnixNano()
-		if mtime > newestTime {
-			newestTime = mtime
-			newest = c.path
-		}
-	}
-	return newest
-}
-
-// findSessionSshdPid walks up the process tree from the current process
-// to find the sshd process that owns this session.
+// findSessionSshdPid walks up the process tree from the current process to
+// find the per-connection sshd process that owns this session (named "sshd" or,
+// on OpenSSH >= 9.8, "sshd-session"). Returns 0 if it cannot be found.
 func findSessionSshdPid() int {
 	pid := os.Getppid()
 	for i := 0; i < 10; i++ {
@@ -196,7 +187,11 @@ func findSessionSshdPid() int {
 		if err != nil {
 			return 0
 		}
-		if strings.TrimSpace(string(comm)) == "sshd" {
+		// OpenSSH >= 9.8 renames the per-connection worker to "sshd-session"
+		// (older versions call it "sshd"). Match either, otherwise the socket
+		// disambiguation above is silently skipped on modern OpenSSH and every
+		// selection would fall through to the fail-closed path.
+		if name := strings.TrimSpace(string(comm)); name == "sshd" || name == "sshd-session" {
 			return pid
 		}
 		// Parse ppid from /proc/<pid>/stat
