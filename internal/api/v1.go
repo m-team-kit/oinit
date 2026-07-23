@@ -2,6 +2,7 @@ package api
 
 import (
 	"crypto/rand"
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
@@ -45,6 +46,24 @@ var usernameRe = regexp.MustCompile(`^[a-z_][a-z0-9_-]*$`)
 // certificate's principals and force-command.
 func isValidUsername(name string) bool {
 	return len(name) > 0 && len(name) <= 32 && usernameRe.MatchString(name)
+}
+
+// sanitizeIdentity makes an issuer or subject string safe to embed in a
+// certificate KeyId and in log lines. It removes control characters (which
+// include the newlines an attacker could use to forge log entries) and caps the
+// length. These values may originate from a token whose signature the CA cannot
+// itself verify, so they are treated as untrusted text.
+func sanitizeIdentity(s string) string {
+	s = strings.Map(func(r rune) rune {
+		if r < 0x20 || r == 0x7f {
+			return -1
+		}
+		return r
+	}, s)
+	if len(s) > 256 {
+		s = s[:256]
+	}
+	return s
 }
 
 type ApiResponseError struct {
@@ -348,17 +367,19 @@ func PostHostCertificate(c *gin.Context) {
 	}
 
 	certDuration := info.CertDuration
-	// Parse JWT without verifying it, as the signer key is unknown to the CA.
-	// motley_cue will verify the token instead.
-	token, _, err := new(jwt.Parser).ParseUnverified(body.Token, jwt.MapClaims{})
 
-	// Extract issuer, subject, and username - prefer motley_cue response, fallback to JWT
+	// Parse the token without verifying, only to discover the claimed issuer:
+	// the CA needs the issuer to know which JWKS to fetch. Nothing from an
+	// unverified token is trusted at this point.
+	unverified, _, parseErr := new(jwt.Parser).ParseUnverified(body.Token, jwt.MapClaims{})
+	isJWT := parseErr == nil
+
 	var issuer string = "unknown"
 	var subject string = "unknown"
 	var username string = status.Credentials.SSHUser // default from credentials
 
-	// First: the username
-	// When provisioning is disabled, use the configured default user
+	// First: the username.
+	// When provisioning is disabled, use the configured default user.
 	if !info.ProvisionUser {
 		username = info.DefaultUser
 	}
@@ -366,30 +387,49 @@ func PostHostCertificate(c *gin.Context) {
 		username = status.Username
 	}
 
-	// Second: use various ways to find sub and iss
-	// 1: use JWT claims to find sub and iss.
-	if err == nil && (issuer == "unknown" || subject == "unknown") {
-		if claims, ok := token.Claims.(jwt.MapClaims); ok {
-			if issuer == "unknown" {
-				if iss, exists := claims["iss"]; exists {
-					if issStr, ok := iss.(string); ok {
-						issuer = issStr
-						debugf("Retrieved issuer from JWT: %s", issuer)
-					}
-				}
+	// Second: establish issuer and subject.
+	//
+	// verifiedClaims holds cryptographically verified JWT claims, or nil for an
+	// opaque (non-JWT) access token.
+	var verifiedClaims jwt.MapClaims
+
+	if isJWT {
+		// The token presents as a JWT: verify its signature against the issuing
+		// provider's JWKS before trusting any claim. The issuer is read
+		// (unverified) from the token only to select the JWKS and must be one
+		// motley_cue advertises - both to avoid turning the CA into an SSRF
+		// vector and because keys are only trustworthy from a known provider.
+		uClaims, _ := unverified.Claims.(jwt.MapClaims)
+		issFromToken, _ := uClaims["iss"].(string)
+
+		if !isSupportedIssuer(info, issFromToken) {
+			log.Printf("Refusing JWT with unsupported or missing issuer: %q", issFromToken)
+			Error(c, http.StatusUnauthorized, ERR_UNAUTHORIZED)
+			return
+		}
+
+		claims, verr := oidcutil.VerifyToken(issFromToken, body.Token)
+		if verr != nil {
+			if errors.Is(verr, oidcutil.ErrTokenInvalid) {
+				log.Printf("JWT verification failed for issuer %q: %s", issFromToken, verr)
+				Error(c, http.StatusUnauthorized, ERR_UNAUTHORIZED)
+			} else {
+				log.Printf("Could not verify JWT with issuer %q: %s", issFromToken, verr)
+				Error(c, http.StatusBadGateway, ERR_GATEWAY_DOWN)
 			}
-			if subject == "unknown" {
-				if sub, exists := claims["sub"]; exists {
-					if subStr, ok := sub.(string); ok {
-						subject = subStr
-						debugf("Retrieved subject from JWT: %s", subject)
-					}
-				}
-			}
+			return
+		}
+
+		verifiedClaims = claims
+		issuer = issFromToken
+		if sub, ok := claims["sub"].(string); ok {
+			subject = sub
+			debugf("Retrieved subject from verified JWT: %s", subject)
 		}
 	}
 
-	// 2: use motley_cue response fields if available
+	// For opaque tokens (and to fill any gaps), fall back to motley_cue response
+	// fields if available.
 	if issuer == "unknown" && status.Iss != "" {
 		issuer = status.Iss
 		debugf("Retrieved issuer from motley_cue: %s", issuer)
@@ -399,9 +439,9 @@ func PostHostCertificate(c *gin.Context) {
 		debugf("Retrieved subject from motley_cue: %s", subject)
 	}
 
-	// 3: use client-provided issuer (for non-JWT/opaque tokens). Only accept
-	// it if motley_cue advertises it as a supported provider, so a client
-	// cannot point the CA at an arbitrary issuer URL.
+	// Use the client-provided issuer (for opaque tokens). Only accept it if
+	// motley_cue advertises it as a supported provider, so a client cannot point
+	// the CA at an arbitrary issuer URL.
 	if issuer == "unknown" && body.Issuer != "" {
 		if isSupportedIssuer(info, body.Issuer) {
 			issuer = body.Issuer
@@ -411,12 +451,10 @@ func PostHostCertificate(c *gin.Context) {
 		}
 	}
 
-	// 4: if subject is still unknown but we have an issuer, try the
-	// userinfo endpoint to obtain the subject claim. This is needed
-	// for opaque (non-JWT) access tokens. The userinfo lookup performs an
-	// outbound HTTP request to the issuer, so only do it for issuers that
-	// motley_cue advertises (defence-in-depth against SSRF, even though a
-	// JWT-derived issuer is already trustworthy).
+	// If the subject is still unknown but we have a supported issuer, query the
+	// userinfo endpoint to obtain it (needed for opaque access tokens). The
+	// lookup performs an outbound request to the issuer, gated to advertised
+	// providers as defence-in-depth against SSRF.
 	if subject == "unknown" && issuer != "unknown" && isSupportedIssuer(info, issuer) {
 		if sub, err := oidcutil.LookupSubject(issuer, body.Token); err == nil {
 			subject = sub
@@ -426,10 +464,17 @@ func PostHostCertificate(c *gin.Context) {
 		}
 	}
 
+	// issuer and subject are embedded into the certificate KeyId and written to
+	// the log; sanitise them so a value carrying control characters or newlines
+	// cannot forge log entries or corrupt the certificate identity.
+	issuer = sanitizeIdentity(issuer)
+	subject = sanitizeIdentity(subject)
+
 	log.Printf("Final values - issuer: %s, subject: %s, username: %s", issuer, subject, username)
-	if err == nil { // we had a JWT token, get the certDuration from token lifetime
+
+	if verifiedClaims != nil { // verified JWT: derive cert lifetime from its expiry
 		if certDuration <= 0 {
-			if exp, err := token.Claims.GetExpirationTime(); err == nil {
+			if exp, err := verifiedClaims.GetExpirationTime(); err == nil && exp != nil {
 				certDuration = int(time.Until(exp.Time).Seconds())
 			}
 		}

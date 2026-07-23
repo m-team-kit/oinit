@@ -46,7 +46,44 @@ func requireHTTPS(rawURL string) error {
 // OpenIDConfiguration represents the relevant fields from an OpenID Connect
 // discovery document.
 type OpenIDConfiguration struct {
+	Issuer           string `json:"issuer"`
 	UserinfoEndpoint string `json:"userinfo_endpoint"`
+	JwksURI          string `json:"jwks_uri"`
+}
+
+// fetchDiscovery retrieves and parses the OpenID Connect discovery document for
+// issuerURL. The issuer must use https so the document (which advertises the
+// endpoints the access token is later sent to) cannot be read or tampered with
+// on the wire.
+func fetchDiscovery(issuerURL string) (OpenIDConfiguration, error) {
+	var config OpenIDConfiguration
+
+	if err := requireHTTPS(issuerURL); err != nil {
+		return config, fmt.Errorf("issuer: %w", err)
+	}
+
+	discoveryURL := strings.TrimSuffix(issuerURL, "/") + WELL_KNOWN_PATH
+
+	resp, err := httpClient.Get(discoveryURL)
+	if err != nil {
+		return config, fmt.Errorf("GET %s: %w", discoveryURL, err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return config, fmt.Errorf("GET %s returned status %d", discoveryURL, resp.StatusCode)
+	}
+
+	body, err := io.ReadAll(io.LimitReader(resp.Body, MAX_RESPONSE_SIZE))
+	if err != nil {
+		return config, fmt.Errorf("reading discovery document: %w", err)
+	}
+
+	if err := json.Unmarshal(body, &config); err != nil {
+		return config, fmt.Errorf("parsing discovery document: %w", err)
+	}
+
+	return config, nil
 }
 
 // UserinfoResponse represents the relevant fields from an OpenID Connect
@@ -83,31 +120,9 @@ func LookupSubject(issuerURL string, accessToken string) (string, error) {
 // discoverUserinfoEndpoint fetches the OpenID Connect discovery document and
 // extracts the userinfo_endpoint.
 func discoverUserinfoEndpoint(issuerURL string) (string, error) {
-	if err := requireHTTPS(issuerURL); err != nil {
-		return "", fmt.Errorf("issuer: %w", err)
-	}
-
-	issuerURL = strings.TrimSuffix(issuerURL, "/")
-	discoveryURL := issuerURL + WELL_KNOWN_PATH
-
-	resp, err := httpClient.Get(discoveryURL)
+	config, err := fetchDiscovery(issuerURL)
 	if err != nil {
-		return "", fmt.Errorf("GET %s: %w", discoveryURL, err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("GET %s returned status %d", discoveryURL, resp.StatusCode)
-	}
-
-	body, err := io.ReadAll(io.LimitReader(resp.Body, MAX_RESPONSE_SIZE))
-	if err != nil {
-		return "", fmt.Errorf("reading discovery document: %w", err)
-	}
-
-	var config OpenIDConfiguration
-	if err := json.Unmarshal(body, &config); err != nil {
-		return "", fmt.Errorf("parsing discovery document: %w", err)
+		return "", err
 	}
 
 	if config.UserinfoEndpoint == "" {
