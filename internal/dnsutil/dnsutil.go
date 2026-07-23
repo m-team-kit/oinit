@@ -166,9 +166,14 @@ func validateAndSelectCA(records []string, lookupName string) (string, error) {
 		return "", fmt.Errorf("invalid URL in TXT record for %s: %w", lookupName, err)
 	}
 
-	// Ensure scheme is http or https
-	if parsedURL.Scheme != "http" && parsedURL.Scheme != "https" {
-		return "", fmt.Errorf("TXT record for %s must contain http:// or https:// URL, got: %s", lookupName, caURL)
+	// Ensure scheme is https. DNS TXT records are unauthenticated network
+	// input: honouring a plaintext http:// CA here would let an attacker who
+	// can spoof/poison the lookup redirect the client to a plaintext endpoint
+	// and harvest the access token (the explicit-scheme plaintext opt-in is
+	// reserved for an operator-typed CA on the command line, which does not
+	// pass through this function).
+	if parsedURL.Scheme != "https" {
+		return "", fmt.Errorf("TXT record for %s must contain an https:// URL, got: %s", lookupName, caURL)
 	}
 
 	// Ensure host is present
