@@ -15,6 +15,7 @@ import (
 
 	"github.com/lbrocke/oinit/pkg/log"
 	"github.com/mattn/go-isatty"
+	"golang.org/x/sys/unix"
 )
 
 const (
@@ -331,7 +332,12 @@ func main() {
 		if err == nil {
 			targetUid, _ := strconv.Atoi(targetUser.Uid)
 			targetGid, _ := strconv.Atoi(targetUser.Gid)
-			if err := os.Chown(socketPath, targetUid, targetGid); err != nil {
+			// Use fchownat with AT_SYMLINK_NOFOLLOW rather than os.Chown, which
+			// follows symlinks. The socket path lives in a world-writable /tmp
+			// and this process holds CAP_CHOWN, so following a symlink swapped
+			// in at the path could chown an arbitrary target file. This changes
+			// only the socket itself, never a link target.
+			if err := unix.Fchownat(unix.AT_FDCWD, socketPath, targetUid, targetGid, unix.AT_SYMLINK_NOFOLLOW); err != nil {
 				logf(fmt.Sprintf("Could not setup oidc-agent forwarding. Chown socket %s to %s: %v failed", socketPath, target, err))
 			} else {
 				logf(fmt.Sprintf("oidc-agent forwarding enabled via %s", socketPath))
