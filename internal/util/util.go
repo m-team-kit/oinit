@@ -50,3 +50,12 @@ func Getenvs(keys ...string) string {
 
 	return ""
 }
+
+// NormalizeIssuer trims trailing slashes so that issuer identifiers which differ
+// only by a trailing "/" compare equal. OIDC issuers are meant to match exactly,
+// but providers, tokens and oidc-agent are inconsistent about the trailing slash
+// in practice, so callers normalise before comparing to avoid spurious
+// mismatches.
+func NormalizeIssuer(iss string) string {
+	return strings.TrimRight(iss, "/")
+}

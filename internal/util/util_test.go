@@ -115,3 +115,16 @@ func TestGetenvs(t *testing.T) {
 	os.Setenv(keys[0], keys[0])
 	assert.Equal(t, Getenvs(keys...), keys[0])
 }
+
+func TestNormalizeIssuer(t *testing.T) {
+	assert.Equal(t, "https://op.example.com", NormalizeIssuer("https://op.example.com"))
+	assert.Equal(t, "https://op.example.com", NormalizeIssuer("https://op.example.com/"))
+	assert.Equal(t, "https://op.example.com", NormalizeIssuer("https://op.example.com//"))
+	assert.Equal(t, "https://op.example.com/auth/realms/x", NormalizeIssuer("https://op.example.com/auth/realms/x/"))
+	assert.Equal(t, "", NormalizeIssuer(""))
+
+	// Issuers differing only by a trailing slash must normalise equal.
+	assert.Equal(t,
+		NormalizeIssuer("https://aai.egi.eu/auth/realms/egi"),
+		NormalizeIssuer("https://aai.egi.eu/auth/realms/egi/"))
+}
