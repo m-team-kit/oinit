@@ -184,6 +184,9 @@ nfpms:
     contents:
       - src: copyright
         dst: /usr/share/doc/{{ .PackageName }}/copyright
+      - src: configs/oinit-switch.sample.conf
+        dst: /etc/oinit/oinit-switch.conf
+        type: config
       - dst: /var/oinit-shell
         type: dir
     section: misc

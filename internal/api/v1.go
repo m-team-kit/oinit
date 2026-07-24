@@ -48,6 +48,34 @@ func isValidUsername(name string) bool {
 	return len(name) > 0 && len(name) <= 32 && usernameRe.MatchString(name)
 }
 
+// isUsernameAllowed reports whether a certificate may be issued for the resolved
+// username under the host group's policy, returning a reason when it may not.
+// Checks run deny-first:
+//   - the "oinit" service account is never a valid login target;
+//   - a username in the block-users denylist is always refused (this wins over
+//     allow-users and allow-root);
+//   - "root" requires the per-host-group allow-root option;
+//   - when a non-empty allow-users allowlist is configured, any other username
+//     must appear in it.
+func isUsernameAllowed(username string, info config.HostInfo) (bool, string) {
+	if username == "oinit" {
+		return false, "the oinit service account may not be a login target"
+	}
+	if slices.Contains(info.BlockUsers, username) {
+		return false, "username is in the block-users denylist"
+	}
+	if username == "root" {
+		if !info.AllowRoot {
+			return false, "allow-root is not enabled"
+		}
+		return true, ""
+	}
+	if len(info.AllowUsers) > 0 && !slices.Contains(info.AllowUsers, username) {
+		return false, "username is not in the allow-users allowlist"
+	}
+	return true, ""
+}
+
 // tokenHasAudience reports whether the JWT claims list want in their "aud"
 // claim. GetAudience normalises the claim whether it is a single string or an
 // array of strings.
@@ -526,12 +554,13 @@ func PostHostCertificate(c *gin.Context) {
 		return
 	}
 
-	// Issuing a certificate for the root account is a privileged, dangerous
-	// operation and is therefore gated behind the per-host-group allow-root
-	// option (default: deny). The server-side oinit-switch and PAM must also be
-	// configured to permit the oinit -> root switch for the login to succeed.
-	if username == "root" && !info.AllowRoot {
-		log.Printf("Refusing to issue root certificate: allow-root is not enabled for host %q", host.Host)
+	// Gate the resolved username against the host group's policy: the oinit
+	// service account is never a valid target, root requires the per-host-group
+	// allow-root option, and an optional allow-users allowlist restricts which
+	// other usernames may be issued a certificate. (The server-side oinit-switch
+	// and PAM must also permit the switch for a privileged login to succeed.)
+	if ok, reason := isUsernameAllowed(username, info); !ok {
+		log.Printf("Refusing to issue certificate for username %q on host %q: %s", username, host.Host, reason)
 		Error(c, http.StatusForbidden, ERR_UNAUTHORIZED)
 		return
 	}

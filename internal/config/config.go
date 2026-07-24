@@ -32,6 +32,8 @@ type DefaultOptions struct {
 	DefaultUser          string `ini:"default-user"`
 	ForceCommand         string `ini:"force-command"`
 	AllowRoot            string `ini:"allow-root"`
+	AllowUsers           string `ini:"allow-users"`
+	BlockUsers           string `ini:"block-users"`
 	RequireTokenAud      string `ini:"require-token-aud"`
 }
 
@@ -50,6 +52,8 @@ type HostGroup struct {
 	Hosts            map[string]string
 	ProvisionUserVal bool
 	AllowRootVal     bool
+	AllowUsersVal    []string
+	BlockUsersVal    []string
 }
 
 type Config struct {
@@ -69,6 +73,8 @@ type HostInfo struct {
 	DefaultUser          string
 	ForceCommand         string
 	AllowRoot            bool
+	AllowUsers           []string
+	BlockUsers           []string
 	RequireTokenAud      string
 	Keys
 }
@@ -107,6 +113,8 @@ func Load(path string) (Config, error) {
 			DefaultUser:          defOptions.DefaultUser,
 			ForceCommand:         defOptions.ForceCommand,
 			AllowRoot:            defOptions.AllowRoot,
+			AllowUsers:           defOptions.AllowUsers,
+			BlockUsers:           defOptions.BlockUsers,
 			RequireTokenAud:      defOptions.RequireTokenAud,
 		}
 
@@ -129,7 +137,8 @@ func Load(path string) (Config, error) {
 				key == "listen-address" ||
 				key == "cert-principals" || key == "provision-user" ||
 				key == "default-user" || key == "force-command" ||
-				key == "allow-root" || key == "require-token-aud" {
+				key == "allow-root" || key == "allow-users" ||
+				key == "block-users" || key == "require-token-aud" {
 				continue
 			}
 
@@ -176,6 +185,18 @@ func Load(path string) (Config, error) {
 			}
 			hg.AllowRootVal = val
 		}
+
+		// allow-users is an optional allowlist of usernames permitted to receive
+		// certificates for this host group. When empty there is no per-user
+		// restriction; when set, the resolved username must appear in the list.
+		// (root is additionally gated by allow-root, and the oinit service
+		// account is always refused.)
+		hg.AllowUsersVal = splitList(hg.AllowUsers)
+
+		// block-users is an optional denylist of usernames that are always
+		// refused for this host group, taking precedence over allow-users and
+		// allow-root.
+		hg.BlockUsersVal = splitList(hg.BlockUsers)
 
 		// Validate: if provisioning is disabled, a default-user must be set
 		if !hg.ProvisionUserVal && hg.DefaultUser == "" {
@@ -292,6 +313,15 @@ func parsePrivateKeyFile(path string) (interface{}, error) {
 	return pk, nil
 }
 
+// splitList splits a comma- or whitespace-separated INI value into a slice of
+// non-empty tokens.
+func splitList(s string) []string {
+	fields := strings.FieldsFunc(s, func(r rune) bool {
+		return r == ',' || r == ' ' || r == '\t'
+	})
+	return fields
+}
+
 func (c Config) GetInfo(host string) (HostInfo, error) {
 	host = strings.ToLower(host)
 
@@ -311,6 +341,8 @@ func (c Config) GetInfo(host string) (HostInfo, error) {
 					DefaultUser:          hostGroup.DefaultUser,
 					ForceCommand:         hostGroup.ForceCommand,
 					AllowRoot:            hostGroup.AllowRootVal,
+					AllowUsers:           hostGroup.AllowUsersVal,
+					BlockUsers:           hostGroup.BlockUsersVal,
 					RequireTokenAud:      hostGroup.RequireTokenAud,
 					Keys:                 hostGroup.Keys,
 				}, nil

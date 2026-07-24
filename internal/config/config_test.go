@@ -110,6 +110,60 @@ func TestAllowRootParsing(t *testing.T) {
 	}
 }
 
+func TestAllowUsersParsing(t *testing.T) {
+	tests := []struct {
+		name string
+		body string
+		want []string
+	}{
+		{name: "absent is empty", body: "", want: nil},
+		{name: "comma separated", body: "allow-users = alice, bob\n", want: []string{"alice", "bob"}},
+		{name: "space separated", body: "allow-users = alice bob\n", want: []string{"alice", "bob"}},
+		{name: "single", body: "allow-users = git\n", want: []string{"git"}},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			conf, err := loadTestConfig(t, tc.body)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			info, err := conf.GetInfo("login.example.com")
+			if err != nil {
+				t.Fatalf("GetInfo: %v", err)
+			}
+			if len(info.AllowUsers) != len(tc.want) {
+				t.Fatalf("AllowUsers = %v, want %v", info.AllowUsers, tc.want)
+			}
+			for i, w := range tc.want {
+				if info.AllowUsers[i] != w {
+					t.Errorf("AllowUsers[%d] = %q, want %q", i, info.AllowUsers[i], w)
+				}
+			}
+		})
+	}
+}
+
+func TestBlockUsersParsing(t *testing.T) {
+	conf, err := loadTestConfig(t, "block-users = mallory, eve\n")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	info, err := conf.GetInfo("login.example.com")
+	if err != nil {
+		t.Fatalf("GetInfo: %v", err)
+	}
+	want := []string{"mallory", "eve"}
+	if len(info.BlockUsers) != len(want) {
+		t.Fatalf("BlockUsers = %v, want %v", info.BlockUsers, want)
+	}
+	for i, w := range want {
+		if info.BlockUsers[i] != w {
+			t.Errorf("BlockUsers[%d] = %q, want %q", i, info.BlockUsers[i], w)
+		}
+	}
+}
+
 func TestRequireTokenAudParsing(t *testing.T) {
 	tests := []struct {
 		name string

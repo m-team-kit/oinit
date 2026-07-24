@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"errors"
 	"fmt"
+	"io"
 	golog "log"
 	"os"
 	"os/exec"
@@ -20,14 +21,86 @@ import (
 )
 
 const (
-	SU_COMMAND  = "su"
-	OINIT_USER  = "oinit"
-	LOG_FILE    = "/var/log/oinit/oinit.log"
-	SYS_UID_MAX = 99
+	SU_COMMAND    = "su"
+	OINIT_USER    = "oinit"
+	LOG_FILE      = "/var/log/oinit/oinit.log"
+	SWITCH_CONFIG = "/etc/oinit/oinit-switch.conf"
+	SYS_UID_MAX   = 99
+
+	// SAFE_PATH replaces any inherited/forwarded PATH so neither this process
+	// nor the shell/su it starts resolves an executable through an
+	// attacker-controlled search path.
+	SAFE_PATH = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 
 	ERR_NOT_ALLOWED = "This is not allowed."
 	ERR_INTERNAL    = "Internal error. oinit might not be set up correctly."
 )
+
+// suCandidates are the absolute paths searched, in order, for the su binary.
+// A fixed list is used instead of exec.LookPath so a caller-controlled $PATH
+// cannot redirect su to an attacker binary (this process runs as the oinit
+// service user and may hold CAP_CHOWN).
+var suCandidates = []string{"/usr/bin/su", "/bin/su"}
+
+// usernameRe mirrors the CA's username validation. oinit-switch re-validates the
+// certificate principals it is handed as an independent, defence-in-depth check,
+// since the CA that signed them runs on a different host.
+var usernameRe = regexp.MustCompile(`^[a-z_][a-z0-9_-]*$`)
+
+// isValidUsername reports whether name is a safe local username to use as a su
+// target (no whitespace or shell metacharacters, bounded length).
+func isValidUsername(name string) bool {
+	return len(name) > 0 && len(name) <= 32 && usernameRe.MatchString(name)
+}
+
+// readAllowedSystemUsers reads the "allow-users" list from SWITCH_CONFIG. These
+// are the only system users (uid < SYS_UID_MAX, including root) permitted as su
+// targets. A missing or unreadable config yields an empty set, so by default no
+// system user may be selected.
+func readAllowedSystemUsers() map[string]bool {
+	f, err := os.Open(SWITCH_CONFIG)
+	if err != nil {
+		return map[string]bool{}
+	}
+	defer f.Close()
+
+	return parseAllowUsers(f)
+}
+
+// parseAllowUsers parses "allow-users = a, b c" lines (comments starting with
+// '#' and blank lines ignored) from r into a set of permitted system-user names.
+func parseAllowUsers(r io.Reader) map[string]bool {
+	allowed := make(map[string]bool)
+
+	scanner := bufio.NewScanner(r)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		key, val, found := strings.Cut(line, "=")
+		if !found || strings.TrimSpace(key) != "allow-users" {
+			continue
+		}
+		for _, name := range strings.FieldsFunc(val, func(r rune) bool {
+			return r == ',' || r == ' ' || r == '\t'
+		}) {
+			allowed[name] = true
+		}
+	}
+	return allowed
+}
+
+// findSu returns the absolute path to the su binary from the fixed candidate
+// list, never consulting $PATH.
+func findSu() (string, error) {
+	for _, p := range suCandidates {
+		if info, err := os.Stat(p); err == nil && !info.IsDir() {
+			return p, nil
+		}
+	}
+	return "", errors.New("su not found in " + strings.Join(suCandidates, ", "))
+}
 
 var fileLogger *golog.Logger
 var socketCleanupPath string // set once socket is found; cleaned up on fatal exit
@@ -72,6 +145,37 @@ func fatalf(msg string) {
 		fileLogger.Println("FATAL: " + msg)
 	}
 	log.LogFatal(msg)
+}
+
+// isAllowedTarget reports whether the certificate principal u may be used as a
+// su target for the current (oinit) user. It re-validates the principal name,
+// resolves the account, and applies classifyTarget. reason is a log message when
+// the principal is rejected for a noteworthy cause (invalid name, blocked system
+// user); it is empty when the principal is simply skipped (unknown account, or
+// it is the current user).
+func isAllowedTarget(u string, curUid int, allowedSystem map[string]bool) (bool, string) {
+	if !isValidUsername(u) {
+		return false, "not a valid username"
+	}
+	uid, err := getUid(u)
+	if err != nil {
+		return false, ""
+	}
+	return classifyTarget(u, uid, curUid, allowedSystem)
+}
+
+// classifyTarget is the pure target-selection policy: a principal is accepted
+// unless it is the current user, or it is a system user (uid < SYS_UID_MAX) that
+// is not listed in the allow-users set. root (uid 0) is a system user and so
+// must also be listed to be permitted.
+func classifyTarget(username string, uid, curUid int, allowedSystem map[string]bool) (bool, string) {
+	if uid == curUid {
+		return false, ""
+	}
+	if uid < SYS_UID_MAX && !allowedSystem[username] {
+		return false, fmt.Sprintf("system user (uid %d) not in allow-users", uid)
+	}
+	return true, ""
 }
 
 // getUser returns the uid for the given username. If the user doesn't exist,
@@ -282,6 +386,11 @@ func main() {
 	initFileLog()
 	// logf(fmt.Sprintf("[pid %d] invoked with args: %v", os.Getpid(), os.Args[1:]))
 
+	// Never trust an inherited/forwarded PATH: this process resolves su from a
+	// fixed candidate list, but the login shell it starts (and any child) must
+	// not resolve binaries through an attacker-controlled search path either.
+	os.Setenv("PATH", SAFE_PATH)
+
 	if len(os.Args) < 2 {
 		fatalf(ERR_NOT_ALLOWED)
 	}
@@ -307,6 +416,9 @@ func main() {
 	// username as principal, allowing the user to connect as himself/herself
 	// directly without going through a service account.
 	for _, u := range allowedUsers {
+		if !isValidUsername(u) {
+			continue
+		}
 		uid, err := getUid(u)
 		if err != nil {
 			continue
@@ -334,27 +446,21 @@ func main() {
 		fatalf(ERR_NOT_ALLOWED)
 	}
 
-	// Find the first allowed user that is a different, non-system user and
-	// switch to them via su. root (uid 0) is the one system account permitted
-	// as a target: it is only ever present as a certificate principal when the
-	// CA was explicitly configured with allow-root, and the su itself still
-	// requires PAM to permit the oinit -> root switch. All other system users
-	// (uid 1..SYS_UID_MAX-1) remain blocked as defence-in-depth.
+	// Find the first allowed user that is a different, permitted account and
+	// switch to them via su. System users (uid < SYS_UID_MAX, including root)
+	// are refused unless explicitly listed in SWITCH_CONFIG's allow-users, and
+	// the su itself still requires PAM to permit the oinit -> target switch.
+	allowedSystemUsers := readAllowedSystemUsers()
 	var target string
 	for _, u := range allowedUsers {
-		uid, err := getUid(u)
-		if err != nil {
-			continue
+		ok, reason := isAllowedTarget(u, curUid, allowedSystemUsers)
+		if ok {
+			target = u
+			break
 		}
-		if uid == curUid {
-			continue
+		if reason != "" {
+			logf(fmt.Sprintf("skipping principal %q: %s", u, reason))
 		}
-		if uid != 0 && uid < SYS_UID_MAX {
-			logf(fmt.Sprintf("skipping system user %s (uid %d)", u, uid))
-			continue
-		}
-		target = u
-		break
 	}
 
 	if target == "" {
@@ -383,8 +489,8 @@ func main() {
 		}
 	}
 
-	// syscall.Exec() requires full path
-	argv0, err := exec.LookPath(SU_COMMAND)
+	// Resolve su from a fixed absolute-path list, never via $PATH.
+	argv0, err := findSu()
 	if err != nil {
 		fatalf(ERR_INTERNAL)
 	}

@@ -2,7 +2,7 @@ package main
 
 import (
 	"os"
-	"os/exec"
+	"path/filepath"
 	"strings"
 	"syscall"
 
@@ -14,6 +14,11 @@ const (
 
 	ERR_PROHIBITED = "This user does not provide interactive access."
 	ERR_INTERNAL   = "An error occurred."
+
+	// SAFE_PATH replaces any inherited/forwarded PATH before handing off to
+	// oinit-switch, so no executable is resolved via an attacker-controlled
+	// search path.
+	SAFE_PATH = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 )
 
 // This program will be invoked by OpenSSH as
@@ -37,11 +42,21 @@ func main() {
 		log.LogFatal(ERR_PROHIBITED)
 	}
 
-	// syscall.Exec() requires full path
-	path, err := exec.LookPath(argv[0])
+	// Resolve oinit-switch to an absolute path next to this binary (they are
+	// installed together), rather than through $PATH, so a caller-controlled
+	// PATH cannot substitute an attacker binary run as the oinit user.
+	self, err := os.Executable()
 	if err != nil {
 		log.LogFatal(ERR_INTERNAL)
 	}
+	path := filepath.Join(filepath.Dir(self), FORCE_COMMAND)
+	if info, err := os.Stat(path); err != nil || info.IsDir() {
+		log.LogFatal(ERR_INTERNAL)
+	}
+
+	// Do not let a forwarded/inherited PATH influence what oinit-switch (or the
+	// shell it starts) resolves.
+	os.Setenv("PATH", SAFE_PATH)
 
 	if err := syscall.Exec(path, argv, os.Environ()); err != nil {
 		log.LogFatal(ERR_INTERNAL)
