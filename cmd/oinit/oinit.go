@@ -270,27 +270,53 @@ func promptProviders(providers []string) (string, error) {
 
 	accs := oidc.GetConfiguredAccounts()
 
-	// Check if user pre-selected an account
+	// // Debug dump (enabled via OINIT_DEBUG): the motley_cue-advertised issuers
+	// // and the oidc-agent issuer->account-shortname map, so a mismatch between
+	// // the two issuer strings (which breaks the exact accs[issuer] lookup below)
+	// // is visible. Compare the issuer strings byte-for-byte - trailing slashes or
+	// // other formatting differences are the usual culprit.
+	// log.LogDebugTTY(fmt.Sprintf("motley_cue providers (%d): %#v", len(providers), providers))
+	// log.LogDebugTTY(fmt.Sprintf("oidc-agent GetConfiguredAccounts (%d issuer(s)):", len(accs)))
+	// for issuer, shortnames := range accs {
+	//     log.LogDebugTTY(fmt.Sprintf("  issuer %q -> accounts %#v", issuer, shortnames))
+	// }
+
+	// oidc-agent and motley_cue are inconsistent about trailing slashes in
+	// issuer URLs, so build a slash-insensitive lookup from issuer to the
+	// configured account short names rather than matching the raw strings.
+	accountsByIssuer := make(map[string][]string, len(accs))
+	for iss, names := range accs {
+		accountsByIssuer[util.NormalizeIssuer(iss)] = names
+	}
+	accountsFor := func(issuer string) []string {
+		return accountsByIssuer[util.NormalizeIssuer(issuer)]
+	}
+
+	// Check if user pre-selected an account. Return the matching motley_cue
+	// provider (rather than the oidc-agent issuer form) so the caller's scope
+	// lookup, which compares against the advertised providers, still succeeds.
 	if account := os.Getenv("OIDC_AGENT_ACCOUNT"); account != "" {
-		for issuer, accounts := range accs {
-			if slices.Contains(accounts, account) {
+		for _, issuer := range providers {
+			if slices.Contains(accountsFor(issuer), account) {
 				return issuer, nil
 			}
 		}
 	}
 
-	// Check if user pre-selected an issuer
-	if issuer := util.Getenvs("OIDC_ISS", "OIDC_ISSUER"); issuer != "" {
-		if _, ok := accs[issuer]; ok {
-			return issuer, nil
+	// Check if user pre-selected an issuer (trailing-slash insensitive).
+	if want := util.Getenvs("OIDC_ISS", "OIDC_ISSUER"); want != "" {
+		for _, issuer := range providers {
+			if util.NormalizeIssuer(issuer) == util.NormalizeIssuer(want) {
+				return issuer, nil
+			}
 		}
 	}
 
 	for i, issuer := range providers {
 		str := issuer
 
-		if accounts, ok := accs[issuer]; ok && len(accounts) > 0 {
-			str += " (Accounts: " + strings.Join(accs[issuer], ", ") + ")"
+		if accounts := accountsFor(issuer); len(accounts) > 0 {
+			str += " (Accounts: " + strings.Join(accounts, ", ") + ")"
 		}
 
 		log.LogTTY(fmt.Sprintf("[%d] %s", i+1, str))
