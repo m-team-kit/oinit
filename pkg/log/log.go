@@ -41,10 +41,16 @@ func log(msg string, color Color, symbol string, useTTY bool, lb bool) {
 	}
 
 	if useTTY {
-		if tty, err := tty.Open(); err == nil {
-			defer tty.Close()
-			tty.Output().WriteString(str)
+		if term, err := tty.Open(); err == nil {
+			defer term.Close()
+			term.Output().WriteString(str)
+			return
 		}
+		// No controlling terminal available - e.g. invoked by OpenSSH's
+		// "Match exec", from a script, or with output redirected. Fall back to
+		// stderr so errors and prompts are surfaced instead of being silently
+		// dropped (which otherwise leaves a bare non-zero exit with no message).
+		fmt.Fprint(os.Stderr, str)
 	} else {
 		fmt.Print(str)
 	}

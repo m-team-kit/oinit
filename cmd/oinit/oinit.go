@@ -34,12 +34,16 @@ const (
 	COMMAND_LIST   = "list"
 	COMMAND_MATCH  = "match"
 
-	USAGE = "oinit-v1.2.0\nUsage:\n" +
+	USAGE = "Usage:\n" +
 		"\toinit add    <ssh-host>[:port]\tAdd a host managed by oinit (CA found automatically (DNS or by assumptions).\n" +
 		"\toinit add    <ssh-host>[:port]  [http[s]://<ca-host>[:<port>]]\n" +
 		"                                \tAdd a host managed by oinit, with a specific CA.\n" +
 		"\toinit del    <ssh-host>[:port]\tRemove oinit management for a host.\n" +
 		"\toinit list\t\t\tList all hosts managed by oinit.\n" +
+		"\toinit match  <ssh-host>[:port] [port]\n" +
+		"                                \tFetch a certificate for a managed host. Invoked automatically by\n" +
+		"                                \tOpenSSH via a 'Match exec' block (as 'oinit match %h %p'); rarely\n" +
+		"                                \trun by hand. Exits 0 if the host is managed, non-zero otherwise.\n" +
 		"\n" +
 		"\tThe following environment variables are considered as follows:\n" +
 		"\tSkip prompting:\n" +
@@ -49,11 +53,22 @@ const (
 		"\t  ACCESS_TOKEN, BEARER_TOKEN, OIDC, OS_ACCESS_TOKEN, OIDC_ACCESS_TOKEN\n"
 )
 
+// version is the oinit version string shown in usage/`--version`. It is
+// overridden at build time via -ldflags "-X main.version=..." (populated from
+// the VERSION file by the Makefile, and from the git tag by goreleaser); it
+// defaults to "dev" for a plain `go build`.
+var version = "dev"
+
+// printUsage prints the version banner followed by the usage text.
+func printUsage() {
+	fmt.Printf("oinit %s\n%s", version, USAGE)
+}
+
 // handleCommandAdd handles the 'add' command to add a host managed by oinit.
 // It takes the host and optional CA as arguments.
 func handleCommandAdd(args []string) {
 	if len(args) < 1 {
-		fmt.Print(USAGE)
+		printUsage()
 		return
 	}
 
@@ -152,7 +167,7 @@ func handleCommandAdd(args []string) {
 // It takes the host as an argument.
 func handleCommandDelete(args []string) {
 	if len(args) < 1 {
-		fmt.Print(USAGE)
+		printUsage()
 		return
 	}
 
@@ -359,16 +374,49 @@ func generateEd25519Keys() (string, ed25519.PrivateKey, error) {
 // handleCommandMatch handles the 'match' command to match a host managed by oinit.
 // It takes the host and port as arguments.
 func handleCommandMatch(args []string) {
-	if len(args) != 2 {
+	// OpenSSH always invokes this as `oinit match %h %p` (two arguments). When
+	// run by hand only the host is usually given, so also accept a single
+	// "host[:port]" argument and default the port to 22. Because OpenSSH always
+	// passes two arguments, a differing argument count means the command was run
+	// manually - so it is safe to print guidance in those branches.
+	var host, port string
+	manual := len(args) == 1
+
+	switch len(args) {
+	case 1:
+		var err error
+		if host, port, err = net.SplitHostPort(args[0]); err != nil {
+			host = strings.TrimSpace(args[0])
+			port = "22"
+		}
+	case 2:
+		host = args[0]
+		port = args[1]
+	default:
+		log.LogError("Usage: oinit match <ssh-host>[:port] [port]\n" +
+			"This command is normally invoked automatically by OpenSSH.")
 		os.Exit(1)
 	}
 
-	host := strings.ToLower(args[0])
-	port := args[1]
+	host = strings.ToLower(host)
 	hostport := strings.ToLower(net.JoinHostPort(host, port))
 
-	if is, err := oinit.IsManagedHost(hostport); err != nil || !is {
-		// Return non-zero exit code to indicate that host/port do not match
+	if is, err := oinit.IsManagedHost(hostport); err != nil {
+		// A genuine failure reading the hosts file (not merely "not managed").
+		// Surface it on a TTY; stay silent when invoked non-interactively by
+		// OpenSSH. Exit non-zero so the Match block does not apply.
+		log.LogErrorTTY("oinit could not read your hosts file: " + err.Error())
+		os.Exit(1)
+	} else if !is {
+		// The host is not managed by oinit. This is the normal signal that the
+		// 'Match exec' block should not apply, and it runs for every SSH
+		// connection - so print nothing in that case. Only when the command was
+		// clearly run by hand (single argument) do we explain the exit code.
+		if manual {
+			log.LogError("Host '" + hostport + "' is not managed by oinit.\n" +
+				"It is not listed in your oinit hosts file. Add it with:\n" +
+				"\toinit add " + hostport)
+		}
 		os.Exit(1)
 	}
 
@@ -628,7 +676,7 @@ func main() {
 	args := os.Args[1:]
 
 	if len(args) == 0 {
-		fmt.Print(USAGE)
+		printUsage()
 		return
 	}
 
@@ -643,7 +691,11 @@ func main() {
 		handleCommandList()
 	case COMMAND_MATCH:
 		handleCommandMatch(args[1:])
+	case "-v", "--version":
+		fmt.Printf("oinit %s\n", version)
+	case "-h", "--help":
+		printUsage()
 	default:
-		fmt.Print(USAGE)
+		printUsage()
 	}
 }

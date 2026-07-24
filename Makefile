@@ -1,4 +1,5 @@
 OUT=./bin
+VERSION=$(shell cat VERSION)
 
 .PHONY: all oinit oinit-ca oinit-shell oinit-switch oinit-ca-docker swagger clean
 
@@ -9,7 +10,7 @@ all: oinit oinit-ca oinit-shell oinit-switch
 # selected via build tags. A single-file `go build .../foo.go` would miss those
 # siblings and fail to compile.
 oinit:
-	go build -ldflags="-s -w" -o ${OUT}/oinit ./cmd/oinit
+	go build -ldflags="-s -w -X main.version=$(VERSION)" -o ${OUT}/oinit ./cmd/oinit
 
 oinit-ca:
 	go build -ldflags="-s -w" -o ${OUT}/oinit-ca ./cmd/oinit-ca
