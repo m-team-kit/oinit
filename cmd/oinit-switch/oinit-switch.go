@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"errors"
 	"fmt"
 	golog "log"
 	"os"
@@ -126,28 +127,55 @@ func findForwardedOidcSocket() string {
 		return ""
 	}
 
-	// Bind the socket to THIS session by verifying its inode is held open by
-	// this session's own sshd process. Every forwarded oidc socket is owned by
-	// the oinit service user, so ownership alone cannot tell two concurrent
-	// sessions apart: selecting by recency — or blindly trusting a lone
-	// candidate — would let one session pick, and later chown away, another
-	// user's forwarded socket, hijacking that user's oidc-agent. If this
-	// session's sshd or a socket it holds cannot be positively identified,
-	// disable forwarding (fail closed) rather than risk selecting the wrong
-	// socket.
-	sshdPid := findSessionSshdPid()
-	if sshdPid == 0 {
-		logf("Could not identify this session's sshd process; disabling oidc-agent forwarding")
-		return ""
+	// Collect the socket inodes held open by this session's own sshd
+	// process(es) so a candidate can be positively bound to this session.
+	sshdInodes := sessionSshdSocketInodes()
+
+	path, reason := chooseForwardedSocket(candidates, sshdInodes, ownedByCurrentUser)
+
+	if fileLogger != nil {
+		fileLogger.Printf("[pid %d] oidc socket selection: %d candidate(s), %d session sshd inode(s) -> %q (%s)",
+			os.Getpid(), len(candidates), len(sshdInodes), path, reason)
 	}
 
-	sshdInodes := getProcessSocketInodes(sshdPid)
-	if path := selectSessionSocket(candidates, sshdInodes, ownedByCurrentUser); path != "" {
-		return path
+	if path == "" {
+		logf("Could not bind a forwarded oidc-agent socket to this session; disabling forwarding")
 	}
 
-	logf("No forwarded oidc-agent socket belongs to this session; disabling forwarding")
-	return ""
+	return path
+}
+
+// chooseForwardedSocket applies the socket-selection policy and returns the
+// chosen socket path (or "" to disable forwarding) plus a short reason for the
+// log. The policy, in order:
+//
+//  1. inode-bound: a candidate whose inode is held by this session's sshd and
+//     which we own. This positively binds the socket to this session and is the
+//     only case that is safe under concurrent sessions.
+//  2. sole-owned: no inode match, but exactly one candidate is owned by us.
+//     With a single forwarded socket there is no other session to confuse it
+//     with, so selecting it cannot hijack another user's agent. This keeps
+//     forwarding working when the sshd holding the listener is not readable
+//     from here (e.g. it runs as root under privilege separation).
+//  3. otherwise refuse: multiple owned candidates with no inode match is
+//     genuinely ambiguous - selecting by guesswork could chown away another
+//     session's socket - so forwarding is disabled.
+func chooseForwardedSocket(candidates []unixSocket, sshdInodes map[string]bool, owned func(string) bool) (string, string) {
+	if p := selectSessionSocket(candidates, sshdInodes, owned); p != "" {
+		return p, "inode-bound"
+	}
+
+	var ownedPaths []string
+	for _, c := range candidates {
+		if owned(c.path) {
+			ownedPaths = append(ownedPaths, c.path)
+		}
+	}
+	if len(ownedPaths) == 1 {
+		return ownedPaths[0], "sole-owned"
+	}
+
+	return "", "ambiguous"
 }
 
 // selectSessionSocket returns the candidate socket that both belongs to this
@@ -175,49 +203,57 @@ func ownedByCurrentUser(path string) bool {
 	return ok && stat.Uid == uint32(os.Getuid())
 }
 
-// findSessionSshdPid walks up the process tree from the current process to
-// find the per-connection sshd process that owns this session (named "sshd" or,
-// on OpenSSH >= 9.8, "sshd-session"). Returns 0 if it cannot be found.
-func findSessionSshdPid() int {
+// sessionSshdSocketInodes walks up the process-ancestor chain and returns the
+// set of socket inodes held open by every readable sshd/sshd-session ancestor
+// (named "sshd", or "sshd-session" on OpenSSH >= 9.8). Inodes are unioned across
+// all such ancestors because the process that actually holds the forwarded
+// listener varies with the OpenSSH privilege-separation model. Only ancestors
+// of the current process are inspected, so a concurrent session's sshd - which
+// lives in a sibling process tree, not an ancestor - never contributes its
+// inodes here, and its forwarded socket therefore cannot be matched.
+func sessionSshdSocketInodes() map[string]bool {
+	inodes := make(map[string]bool)
+
 	pid := os.Getppid()
-	for i := 0; i < 10; i++ {
-		if pid <= 1 {
-			return 0
-		}
+	for i := 0; i < 20 && pid > 1; i++ {
 		comm, err := os.ReadFile(fmt.Sprintf("/proc/%d/comm", pid))
 		if err != nil {
-			return 0
+			break
 		}
-		// OpenSSH >= 9.8 renames the per-connection worker to "sshd-session"
-		// (older versions call it "sshd"). Match either, otherwise the socket
-		// disambiguation above is silently skipped on modern OpenSSH and every
-		// selection would fall through to the fail-closed path.
 		if name := strings.TrimSpace(string(comm)); name == "sshd" || name == "sshd-session" {
-			return pid
+			for inode := range getProcessSocketInodes(pid) {
+				inodes[inode] = true
+			}
 		}
-		// Parse ppid from /proc/<pid>/stat
-		// Format: pid (comm) state ppid ...
-		// comm can contain parens, so find last ')' first
-		stat, err := os.ReadFile(fmt.Sprintf("/proc/%d/stat", pid))
+
+		ppid, err := parentPid(pid)
 		if err != nil {
-			return 0
-		}
-		statStr := string(stat)
-		idx := strings.LastIndex(statStr, ")")
-		if idx < 0 || idx+2 >= len(statStr) {
-			return 0
-		}
-		fields := strings.Fields(statStr[idx+2:])
-		if len(fields) < 2 {
-			return 0
-		}
-		ppid, err := strconv.Atoi(fields[1])
-		if err != nil {
-			return 0
+			break
 		}
 		pid = ppid
 	}
-	return 0
+
+	return inodes
+}
+
+// parentPid returns the parent PID of pid by parsing /proc/<pid>/stat.
+func parentPid(pid int) (int, error) {
+	stat, err := os.ReadFile(fmt.Sprintf("/proc/%d/stat", pid))
+	if err != nil {
+		return 0, err
+	}
+	// Format: pid (comm) state ppid ...
+	// comm may itself contain spaces or parens, so scan past the last ')'.
+	statStr := string(stat)
+	idx := strings.LastIndex(statStr, ")")
+	if idx < 0 || idx+2 >= len(statStr) {
+		return 0, errors.New("cannot locate comm in /proc stat")
+	}
+	fields := strings.Fields(statStr[idx+2:])
+	if len(fields) < 2 {
+		return 0, errors.New("cannot parse ppid from /proc stat")
+	}
+	return strconv.Atoi(fields[1])
 }
 
 // getProcessSocketInodes returns the set of inode numbers for all sockets

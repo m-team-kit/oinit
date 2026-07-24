@@ -66,3 +66,65 @@ func TestSelectSessionSocket(t *testing.T) {
 		})
 	}
 }
+
+// TestChooseForwardedSocket covers the selection policy layered on top of the
+// inode match: prefer inode-bound; else fall back to a sole owned candidate;
+// else refuse. The sole-owned fallback must never fire when more than one
+// forwarded socket is owned (the concurrent-session case P0-2 must block).
+func TestChooseForwardedSocket(t *testing.T) {
+	ownedAll := func(string) bool { return true }
+
+	mine := unixSocket{inode: "111", path: "/tmp/oidc-forward-1"}
+	theirs := unixSocket{inode: "222", path: "/tmp/oidc-forward-2"}
+
+	tests := []struct {
+		name       string
+		candidates []unixSocket
+		sshdInodes map[string]bool
+		owned      func(string) bool
+		wantPath   string
+		wantReason string
+	}{
+		{
+			name:       "inode-bound wins even with multiple candidates",
+			candidates: []unixSocket{mine, theirs},
+			sshdInodes: map[string]bool{"111": true},
+			owned:      ownedAll,
+			wantPath:   "/tmp/oidc-forward-1",
+			wantReason: "inode-bound",
+		},
+		{
+			name:       "no inode match, single owned -> sole-owned fallback",
+			candidates: []unixSocket{mine},
+			sshdInodes: map[string]bool{}, // e.g. sshd fds not readable
+			owned:      ownedAll,
+			wantPath:   "/tmp/oidc-forward-1",
+			wantReason: "sole-owned",
+		},
+		{
+			name:       "no inode match, multiple owned -> refuse (concurrent sessions)",
+			candidates: []unixSocket{mine, theirs},
+			sshdInodes: map[string]bool{},
+			owned:      ownedAll,
+			wantPath:   "",
+			wantReason: "ambiguous",
+		},
+		{
+			name:       "no inode match, none owned -> refuse",
+			candidates: []unixSocket{mine},
+			sshdInodes: map[string]bool{},
+			owned:      func(string) bool { return false },
+			wantPath:   "",
+			wantReason: "ambiguous",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			path, reason := chooseForwardedSocket(tt.candidates, tt.sshdInodes, tt.owned)
+			if path != tt.wantPath || reason != tt.wantReason {
+				t.Fatalf("chooseForwardedSocket = (%q, %q), want (%q, %q)", path, reason, tt.wantPath, tt.wantReason)
+			}
+		})
+	}
+}
