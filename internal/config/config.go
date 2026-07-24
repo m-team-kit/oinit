@@ -32,6 +32,7 @@ type DefaultOptions struct {
 	DefaultUser          string `ini:"default-user"`
 	ForceCommand         string `ini:"force-command"`
 	AllowRoot            string `ini:"allow-root"`
+	RequireTokenAud      string `ini:"require-token-aud"`
 }
 
 type Keys struct {
@@ -68,6 +69,7 @@ type HostInfo struct {
 	DefaultUser          string
 	ForceCommand         string
 	AllowRoot            bool
+	RequireTokenAud      string
 	Keys
 }
 
@@ -105,6 +107,7 @@ func Load(path string) (Config, error) {
 			DefaultUser:          defOptions.DefaultUser,
 			ForceCommand:         defOptions.ForceCommand,
 			AllowRoot:            defOptions.AllowRoot,
+			RequireTokenAud:      defOptions.RequireTokenAud,
 		}
 
 		if err := hostgroup.MapTo(opts); err != nil {
@@ -126,7 +129,7 @@ func Load(path string) (Config, error) {
 				key == "listen-address" ||
 				key == "cert-principals" || key == "provision-user" ||
 				key == "default-user" || key == "force-command" ||
-				key == "allow-root" {
+				key == "allow-root" || key == "require-token-aud" {
 				continue
 			}
 
@@ -308,6 +311,7 @@ func (c Config) GetInfo(host string) (HostInfo, error) {
 					DefaultUser:          hostGroup.DefaultUser,
 					ForceCommand:         hostGroup.ForceCommand,
 					AllowRoot:            hostGroup.AllowRootVal,
+					RequireTokenAud:      hostGroup.RequireTokenAud,
 					Keys:                 hostGroup.Keys,
 				}, nil
 			}

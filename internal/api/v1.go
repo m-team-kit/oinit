@@ -48,6 +48,17 @@ func isValidUsername(name string) bool {
 	return len(name) > 0 && len(name) <= 32 && usernameRe.MatchString(name)
 }
 
+// tokenHasAudience reports whether the JWT claims list want in their "aud"
+// claim. GetAudience normalises the claim whether it is a single string or an
+// array of strings.
+func tokenHasAudience(claims jwt.MapClaims, want string) bool {
+	aud, err := claims.GetAudience()
+	if err != nil {
+		return false
+	}
+	return slices.Contains(aud, want)
+}
+
 // sanitizeIdentity makes an issuer or subject string safe to embed in a
 // certificate KeyId and in log lines. It removes control characters (which
 // include the newlines an attacker could use to forge log entries) and caps the
@@ -422,6 +433,18 @@ func PostHostCertificate(c *gin.Context) {
 		}
 
 		verifiedClaims = claims
+
+		// Optional audience binding: when require-token-aud is configured for the
+		// host group, the verified JWT must list that value in its "aud" claim.
+		// This mitigates replay of a token that was minted for a different
+		// relying party. It is only enforced for JWTs - an opaque token has no
+		// audience the CA can inspect.
+		if info.RequireTokenAud != "" && !tokenHasAudience(claims, info.RequireTokenAud) {
+			log.Printf("Refusing JWT: audience does not include required %q", info.RequireTokenAud)
+			Error(c, http.StatusUnauthorized, ERR_UNAUTHORIZED)
+			return
+		}
+
 		issuer = issFromToken
 		if sub, ok := claims["sub"].(string); ok {
 			subject = sub

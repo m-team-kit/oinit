@@ -109,3 +109,31 @@ func TestAllowRootParsing(t *testing.T) {
 		})
 	}
 }
+
+func TestRequireTokenAudParsing(t *testing.T) {
+	tests := []struct {
+		name string
+		body string
+		want string
+	}{
+		{name: "absent defaults to empty", body: "", want: ""},
+		{name: "set per host group", body: "require-token-aud = https://ca.example.com\n", want: "https://ca.example.com"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			conf, err := loadTestConfig(t, tc.body)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+
+			info, err := conf.GetInfo("login.example.com")
+			if err != nil {
+				t.Fatalf("GetInfo: %v", err)
+			}
+			if info.RequireTokenAud != tc.want {
+				t.Errorf("RequireTokenAud = %q, want %q", info.RequireTokenAud, tc.want)
+			}
+		})
+	}
+}
