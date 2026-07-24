@@ -3,6 +3,7 @@ package oinit
 import (
 	"bufio"
 	"errors"
+	"io"
 	"net"
 	"os"
 	"strings"
@@ -139,23 +140,43 @@ func GetManagedHosts() (map[string]string, error) {
 		if err != nil {
 			continue
 		}
-		defer f.Close()
 
-		scanner := bufio.NewScanner(f)
-		for scanner.Scan() {
-			hostport, ca, found := strings.Cut(scanner.Text(), " ")
-			if !found || strings.Contains(ca, " ") {
-				return nil, errors.New("malformed hosts file")
-			}
-
-			if _, exists := hosts[hostport]; exists {
-				// do not overwrite existing keys
-				continue
-			}
-
-			hosts[hostport] = ca
+		err = parseHosts(f, hosts)
+		f.Close()
+		if err != nil {
+			return nil, err
 		}
 	}
 
 	return hosts, nil
+}
+
+// parseHosts reads managed-host entries ("<host>:<port> <ca-url>", one per
+// line) from r into hosts. Blank lines and comment lines - those whose first
+// non-whitespace character is '#' - are ignored. Existing keys are not
+// overwritten, so the first file to define a host wins.
+func parseHosts(r io.Reader, hosts map[string]string) error {
+	scanner := bufio.NewScanner(r)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+
+		// Skip blank lines and comments.
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+
+		hostport, ca, found := strings.Cut(line, " ")
+		if !found || strings.Contains(ca, " ") {
+			return errors.New("malformed hosts file")
+		}
+
+		if _, exists := hosts[hostport]; exists {
+			// do not overwrite existing keys
+			continue
+		}
+
+		hosts[hostport] = ca
+	}
+
+	return nil
 }
