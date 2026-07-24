@@ -168,13 +168,23 @@ func isSupportedIssuer(info config.HostInfo, issuer string) bool {
 		return false
 	}
 
+	issuer = normalizeIssuer(issuer)
 	for _, p := range providers {
-		if p.URL == issuer {
+		if normalizeIssuer(p.URL) == issuer {
 			return true
 		}
 	}
 
 	return false
+}
+
+// normalizeIssuer trims trailing slashes so that issuer identifiers which
+// differ only by a trailing "/" compare equal. OIDC issuers are meant to match
+// exactly, but providers and tokens are inconsistent about the trailing slash
+// in practice (e.g. a token's "iss" carries one while the motley_cue-advertised
+// provider URL does not), which would otherwise reject an otherwise-valid token.
+func normalizeIssuer(iss string) string {
+	return strings.TrimRight(iss, "/")
 }
 
 // GetIndex is the handler for GET /
