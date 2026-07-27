@@ -59,10 +59,13 @@ A few properties of the design are worth being explicit about for operators:
 - **CA discovery is trust-on-first-use.** `oinit add <host>` accepts whatever CA
   a DNS TXT record (or, as a fallback, an HTTPS probe) points to. The DNS lookup
   itself is not authenticated, so without DNSSEC an attacker who can spoof DNS
-  responses during the first `oinit add` can substitute their own CA. The host CA
-  public key returned by that CA is then pinned into `known_hosts`, so the window
-  is the initial discovery. Prefer specifying the CA explicitly
-  (`oinit add <host> <ca>`) or relying on DNSSEC for the discovery domain.
+  responses during the first `oinit add` can substitute their own CA. To bound
+  this, `oinit add` prints the CA host-key **SHA256 fingerprint** and requires
+  confirmation before pinning it into `known_hosts`; verify that fingerprint out
+  of band. Operators are encouraged to publish it in a DNSSEC-signed record (see
+  [Verifying the CA key](docs/oinit.md#verifying-the-ca-key)); this is currently
+  an operational check, not auto-verified. Prefer specifying the CA explicitly
+  (`oinit add <host> <ca>`); `-y`/`--yes` accepts the fingerprint non-interactively.
 
 - **Issued certificates permit port and agent forwarding.** The user certificate
   carries the `permit-port-forwarding` and `permit-agent-forwarding` extensions.
@@ -72,13 +75,38 @@ A few properties of the design are worth being explicit about for operators:
   tunnelling should enforce it server-side (e.g. `AllowTcpForwarding`,
   `PermitOpen` in `sshd_config`) rather than relying on the certificate.
 
-- **The CA's userinfo lookup follows HTTP redirects.** When resolving the subject
-  for opaque (non-JWT) tokens, the CA contacts the issuer's discovery and
-  userinfo endpoints. The issuer is restricted to the providers advertised by the
-  host's motley_cue instance (so it cannot be pointed at an arbitrary address),
-  but the resulting requests still follow redirects. This is low risk given the
-  issuer allowlist, but means a compromised or misconfigured trusted IdP could
-  redirect those specific requests.
+- **The CA delegates access-token validity to motley_cue.** For a JWT the CA
+  additionally verifies the signature against the issuer's JWKS (and the audience,
+  if `require-token-aud` is set), but the decision that a token is valid and
+  authorises the user is made by motley_cue. Opaque (non-JWT) tokens have no
+  CA-inspectable audience, so `require-token-aud` does not apply to them. The
+  discovery/JWKS/userinfo requests the CA makes are restricted to
+  motley_cue-advertised issuers, require HTTPS, and do not follow redirects.
+
+- **Issued certificates are not bound to a specific host.** An SSH *user*
+  certificate carries no host restriction, and a host group may cover many hosts
+  (including wildcards) that all trust the same user CA. A certificate obtained for
+  one host in a group is therefore technically usable on any host trusting that CA.
+  This is inherent to the SSH user-certificate model; it is mitigated by the short
+  certificate lifetime (`cert-validity`). Use separate host groups / user CAs to
+  isolate sets of hosts that must not share trust.
+
+- **Revocation relies on short certificate lifetimes.** Certificates are issued
+  with serial `0` and oinit does not maintain a KRL, so there is no serial- or
+  key-based revocation — keep `cert-validity` short. Serial-based KRL revocation is
+  a possible future addition.
+
+- **gpg-agent detection is heuristic.** The client decides whether the running
+  agent is gpg-agent (which cannot hold SSH certificates) from `GPG_AGENT_INFO` and
+  the `SSH_AUTH_SOCK` path. A misdetection only changes whether the certificate is
+  held in the agent or written to `~/.ssh` (the private key file is mode `0600`), so
+  the impact is limited to storage location, not exposure of the key to others.
+
+- **The client public-key strength floor is defence-in-depth.** The CA refuses to
+  certify weak client keys (RSA below 3072 bits, and non-Ed25519/ECDSA/RSA types
+  such as DSA). Because the client certifies its own freshly generated key, this
+  primarily guards against a non-standard or malicious client rather than a
+  third-party risk.
 
 ## Configuration
 
