@@ -643,6 +643,10 @@ func handleCommandMatch(args []string) {
 			PrivateKey:   privkey,
 			Certificate:  cert,
 			LifetimeSecs: uint32(time.Until(validUntil).Seconds()),
+			// Tag the cert so oinit can later recognise its own certificate for
+			// this host in the agent (and remove it on 'oinit del'); the CA's
+			// KeyId is the audit identity and does not encode the host.
+			Comment: sshutil.AgentCertComment(host),
 		}) != nil {
 			log.LogFatalTTY("Cannot add private key and certificate to ssh-agent.")
 		} else {

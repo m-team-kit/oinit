@@ -2,6 +2,7 @@ package api
 
 import (
 	"crypto/rand"
+	"crypto/rsa"
 	"errors"
 	"fmt"
 	"log"
@@ -46,6 +47,37 @@ var usernameRe = regexp.MustCompile(`^[a-z_][a-z0-9_-]*$`)
 // certificate's principals and force-command.
 func isValidUsername(name string) bool {
 	return len(name) > 0 && len(name) <= 32 && usernameRe.MatchString(name)
+}
+
+// minClientRSABits is the smallest RSA client key the CA will certify.
+const minClientRSABits = 3072
+
+// isStrongPublicKey reports whether the client public key is acceptable to
+// certify, returning a reason when it is not. Ed25519 and NIST-P curves are
+// accepted; RSA must meet minClientRSABits; everything else (e.g. DSA) is
+// refused.
+func isStrongPublicKey(pub ssh.PublicKey) (bool, string) {
+	switch pub.Type() {
+	case ssh.KeyAlgoED25519:
+		return true, ""
+	case ssh.KeyAlgoECDSA256, ssh.KeyAlgoECDSA384, ssh.KeyAlgoECDSA521:
+		return true, ""
+	case ssh.KeyAlgoRSA, ssh.KeyAlgoRSASHA256, ssh.KeyAlgoRSASHA512:
+		ck, ok := pub.(ssh.CryptoPublicKey)
+		if !ok {
+			return false, "cannot inspect RSA key"
+		}
+		rsaKey, ok := ck.CryptoPublicKey().(*rsa.PublicKey)
+		if !ok {
+			return false, "not an RSA key"
+		}
+		if bits := rsaKey.N.BitLen(); bits < minClientRSABits {
+			return false, fmt.Sprintf("RSA key too small: %d bits (minimum %d)", bits, minClientRSABits)
+		}
+		return true, ""
+	default:
+		return false, "unsupported or weak key type: " + pub.Type()
+	}
 }
 
 // isUsernameAllowed reports whether a certificate may be issued for the resolved
@@ -358,6 +390,15 @@ func PostHostCertificate(c *gin.Context) {
 
 	pubkey, _, _, _, err := ssh.ParseAuthorizedKey([]byte(body.Publickey))
 	if err != nil {
+		Error(c, http.StatusBadRequest, ERR_BAD_BODY)
+		return
+	}
+
+	// Refuse to certify a weak client public key. The official client generates
+	// an ephemeral Ed25519 key, so this only rejects a non-standard/malicious
+	// client; it is defence-in-depth (the client certifies its own key).
+	if ok, reason := isStrongPublicKey(pubkey); !ok {
+		log.Printf("Refusing to sign weak public key: %s", reason)
 		Error(c, http.StatusBadRequest, ERR_BAD_BODY)
 		return
 	}

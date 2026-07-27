@@ -26,6 +26,10 @@ func generateUserCertificate(host string, pubkey ssh.PublicKey, username string,
 		//   provide an abbreviated way to refer to certificates from that CA.
 		//   If a CA does not wish to number its certificates it must set this
 		//   field to zero.
+		//
+		// oinit does not number its certificates: revocation currently relies on
+		// short certificate lifetimes rather than a KRL. Assigning unique serials
+		// to enable serial-based KRL revocation is a possible future feature.
 		Serial:   0,
 		CertType: ssh.UserCert,
 		// From OpenSSH PROTOCOL.certkeys:

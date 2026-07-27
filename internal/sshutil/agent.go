@@ -32,8 +32,8 @@ func IsGPGAgent() bool {
 	sshAuthSock := os.Getenv("SSH_AUTH_SOCK")
 	if sshAuthSock != "" {
 		// gpg-agent typically uses paths containing "gnupg" or "gpg-agent"
-		return strings.Contains(sshAuthSock, "gnupg") || 
-		       strings.Contains(sshAuthSock, "gpg-agent")
+		return strings.Contains(sshAuthSock, "gnupg") ||
+			strings.Contains(sshAuthSock, "gpg-agent")
 	}
 
 	return false
@@ -61,12 +61,21 @@ func GetAgent() (agent.ExtendedAgent, error) {
 	return agent.NewClient(sshAgentSock), err
 }
 
+// AgentCertComment returns the ssh-agent key comment oinit tags its own
+// certificates with, so it can later recognise its certificate for a given
+// host. The certificate's KeyId is the CA's audit identity ("sub @ iss -> user")
+// and does not encode the host, so the client-controlled agent comment is used
+// instead.
+func AgentCertComment(host string) string {
+	return PRINCIPAL + "@" + strings.ToLower(host)
+}
+
 // agentGetOinitCertificates returns a slice of all certificates in the agent
 // that have been issued by oinit for the given host.
 //
-// The KeyId field, which is set to oinit@<host> by oinit-ca, as well as the
-// occurrences of "oinit" in the ValidPrincipals field are used to identify
-// certificates issued by oinit.
+// oinit tags its own certificates with the per-host comment from
+// AgentCertComment when it adds them to the agent; that comment (plus the
+// "oinit" principal) is used to identify them here.
 func agentGetOinitCertificates(agent agent.ExtendedAgent, host string) ([]ssh.Certificate, error) {
 	var certificates []ssh.Certificate
 
@@ -75,9 +84,13 @@ func agentGetOinitCertificates(agent agent.ExtendedAgent, host string) ([]ssh.Ce
 		return certificates, err
 	}
 
-	keyId := PRINCIPAL + "@" + strings.ToLower(host)
+	comment := AgentCertComment(host)
 
 	for _, key := range keys {
+		if key.Comment != comment {
+			continue
+		}
+
 		pk, err := ssh.ParsePublicKey(key.Blob)
 		if err != nil {
 			// This should never happen
@@ -90,7 +103,7 @@ func agentGetOinitCertificates(agent agent.ExtendedAgent, host string) ([]ssh.Ce
 			continue
 		}
 
-		if cert.CertType == ssh.UserCert && cert.KeyId == keyId &&
+		if cert.CertType == ssh.UserCert &&
 			slices.Contains(cert.ValidPrincipals, PRINCIPAL) {
 			certificates = append(certificates, *cert)
 		}
