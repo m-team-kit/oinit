@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"errors"
 	"os"
+	"regexp"
 	"strconv"
 	"strings"
 
@@ -103,6 +104,17 @@ func GenerateMatchBlock() string {
 	return "Match exec \"oinit match %h %p\"\n\tUser oinit\n\tIdentityFile ~/.ssh/oinit_%h_%p\n\tCertificateFile ~/.ssh/oinit_%h_%p-cert.pub"
 }
 
+// matchBlockRe recognises an already-present oinit "Match exec" line. It matches
+// generously so an operator's customised invocation is still detected: leading
+// whitespace, case-insensitive keywords, and any command that runs "oinit match"
+// (e.g. an absolute path like "/usr/bin/oinit match %h %p") all count.
+var matchBlockRe = regexp.MustCompile(`(?i)^\s*Match\s+exec\s+.*oinit\s+match`)
+
+// hasMatchBlock reports whether line is an oinit "Match exec" directive.
+func hasMatchBlock(line string) bool {
+	return matchBlockRe.MatchString(line)
+}
+
 func fileExists(path string) bool {
 	_, err := os.Stat(path)
 
@@ -118,9 +130,11 @@ func AddSSHMatchBlock() (bool, error) {
 		return false, err
 	}
 
-	// Search for occurrence of 'Match exec ...'
+	// Search for an existing oinit 'Match exec ... oinit match ...' line. The
+	// check is deliberately generous (see matchBlockRe) so a block whose command
+	// the operator has customised - e.g. an absolute "/usr/bin/oinit" path - is
+	// still recognised and not duplicated.
 	block := GenerateMatchBlock()
-	search := strings.Split(block, "\n")[0]
 
 	for _, path := range []string{paths.System, paths.User} {
 		f, err := os.Open(path)
@@ -131,7 +145,7 @@ func AddSSHMatchBlock() (bool, error) {
 
 		scanner := bufio.NewScanner(f)
 		for scanner.Scan() {
-			if scanner.Text() == search {
+			if hasMatchBlock(scanner.Text()) {
 				return false, nil
 			}
 		}

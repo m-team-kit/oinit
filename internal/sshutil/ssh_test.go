@@ -56,3 +56,33 @@ func TestGenerateKnownHostsRejectsBadHost(t *testing.T) {
 	_, err := GenerateKnownHosts("example.com ssh-ed25519 AAAA evil", "22", testPubKey(t))
 	assert.Error(t, err)
 }
+
+func TestHasMatchBlock(t *testing.T) {
+	present := []string{
+		`Match exec "oinit match %h %p"`,
+		`Match exec "/usr/bin/oinit match %h %p"`,
+		`  Match exec "/opt/oinit/bin/oinit match %h %p"`,
+		"match exec \"oinit match %h %p\"", // case-insensitive keywords
+		`Match   exec   "oinit match %h %p"`,
+		`Match exec 'oinit match %h %p'`,
+	}
+	absent := []string{
+		`Host example.com`,
+		`Match exec "true"`,
+		`    User oinit`,
+		`# Match exec "oinit match %h %p"`, // commented out
+		`Match exec "oinitmatch %h %p"`,    // no space between oinit and match
+		``,
+	}
+
+	for _, l := range present {
+		if !hasMatchBlock(l) {
+			t.Errorf("hasMatchBlock(%q) = false, want true", l)
+		}
+	}
+	for _, l := range absent {
+		if hasMatchBlock(l) {
+			t.Errorf("hasMatchBlock(%q) = true, want false", l)
+		}
+	}
+}
