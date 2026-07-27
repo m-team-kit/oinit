@@ -53,24 +53,33 @@ func isValidUsername(name string) bool {
 	return len(name) > 0 && len(name) <= 32 && usernameRe.MatchString(name)
 }
 
-// readAllowedSystemUsers reads the "allow-users" list from SWITCH_CONFIG. These
-// are the only system users (uid < SYS_UID_MAX, including root) permitted as su
-// targets. A missing or unreadable config yields an empty set, so by default no
-// system user may be selected.
-func readAllowedSystemUsers() map[string]bool {
+// switchConfig holds the target-selection policy read from SWITCH_CONFIG.
+//   - allowUsers: the only system users (uid < SYS_UID_MAX, including root)
+//     permitted as su targets.
+//   - blockUsers: usernames never permitted as su targets (any uid), taking
+//     precedence over allowUsers.
+type switchConfig struct {
+	allowUsers map[string]bool
+	blockUsers map[string]bool
+}
+
+// readSwitchConfig reads SWITCH_CONFIG. A missing or unreadable config yields
+// empty sets, so by default no system user may be selected and nothing is
+// blocked.
+func readSwitchConfig() switchConfig {
 	f, err := os.Open(SWITCH_CONFIG)
 	if err != nil {
-		return map[string]bool{}
+		return switchConfig{allowUsers: map[string]bool{}, blockUsers: map[string]bool{}}
 	}
 	defer f.Close()
 
-	return parseAllowUsers(f)
+	return parseSwitchConfig(f)
 }
 
-// parseAllowUsers parses "allow-users = a, b c" lines (comments starting with
-// '#' and blank lines ignored) from r into a set of permitted system-user names.
-func parseAllowUsers(r io.Reader) map[string]bool {
-	allowed := make(map[string]bool)
+// parseSwitchConfig parses "allow-users = a, b c" and "block-users = d e" lines
+// (comments starting with '#' and blank lines ignored) from r.
+func parseSwitchConfig(r io.Reader) switchConfig {
+	cfg := switchConfig{allowUsers: map[string]bool{}, blockUsers: map[string]bool{}}
 
 	scanner := bufio.NewScanner(r)
 	for scanner.Scan() {
@@ -79,16 +88,27 @@ func parseAllowUsers(r io.Reader) map[string]bool {
 			continue
 		}
 		key, val, found := strings.Cut(line, "=")
-		if !found || strings.TrimSpace(key) != "allow-users" {
+		if !found {
 			continue
 		}
+
+		var target map[string]bool
+		switch strings.TrimSpace(key) {
+		case "allow-users":
+			target = cfg.allowUsers
+		case "block-users":
+			target = cfg.blockUsers
+		default:
+			continue
+		}
+
 		for _, name := range strings.FieldsFunc(val, func(r rune) bool {
 			return r == ',' || r == ' ' || r == '\t'
 		}) {
-			allowed[name] = true
+			target[name] = true
 		}
 	}
-	return allowed
+	return cfg
 }
 
 // findSu returns the absolute path to the su binary from the fixed candidate
@@ -153,7 +173,7 @@ func fatalf(msg string) {
 // the principal is rejected for a noteworthy cause (invalid name, blocked system
 // user); it is empty when the principal is simply skipped (unknown account, or
 // it is the current user).
-func isAllowedTarget(u string, curUid int, allowedSystem map[string]bool) (bool, string) {
+func isAllowedTarget(u string, curUid int, cfg switchConfig) (bool, string) {
 	if !isValidUsername(u) {
 		return false, "not a valid username"
 	}
@@ -161,18 +181,22 @@ func isAllowedTarget(u string, curUid int, allowedSystem map[string]bool) (bool,
 	if err != nil {
 		return false, ""
 	}
-	return classifyTarget(u, uid, curUid, allowedSystem)
+	return classifyTarget(u, uid, curUid, cfg)
 }
 
-// classifyTarget is the pure target-selection policy: a principal is accepted
-// unless it is the current user, or it is a system user (uid < SYS_UID_MAX) that
-// is not listed in the allow-users set. root (uid 0) is a system user and so
-// must also be listed to be permitted.
-func classifyTarget(username string, uid, curUid int, allowedSystem map[string]bool) (bool, string) {
+// classifyTarget is the pure target-selection policy, applied deny-first: a
+// principal is refused if it is in block-users; otherwise skipped if it is the
+// current user; otherwise refused if it is a system user (uid < SYS_UID_MAX) not
+// listed in allow-users. root (uid 0) is a system user and so must also be
+// listed in allow-users to be permitted.
+func classifyTarget(username string, uid, curUid int, cfg switchConfig) (bool, string) {
+	if cfg.blockUsers[username] {
+		return false, "listed in block-users"
+	}
 	if uid == curUid {
 		return false, ""
 	}
-	if uid < SYS_UID_MAX && !allowedSystem[username] {
+	if uid < SYS_UID_MAX && !cfg.allowUsers[username] {
 		return false, fmt.Sprintf("system user (uid %d) not in allow-users", uid)
 	}
 	return true, ""
@@ -447,13 +471,14 @@ func main() {
 	}
 
 	// Find the first allowed user that is a different, permitted account and
-	// switch to them via su. System users (uid < SYS_UID_MAX, including root)
-	// are refused unless explicitly listed in SWITCH_CONFIG's allow-users, and
-	// the su itself still requires PAM to permit the oinit -> target switch.
-	allowedSystemUsers := readAllowedSystemUsers()
+	// switch to them via su. Users in SWITCH_CONFIG's block-users are always
+	// refused; system users (uid < SYS_UID_MAX, including root) are refused
+	// unless listed in allow-users; and the su itself still requires PAM to
+	// permit the oinit -> target switch.
+	switchCfg := readSwitchConfig()
 	var target string
 	for _, u := range allowedUsers {
-		ok, reason := isAllowedTarget(u, curUid, allowedSystemUsers)
+		ok, reason := isAllowedTarget(u, curUid, switchCfg)
 		if ok {
 			target = u
 			break

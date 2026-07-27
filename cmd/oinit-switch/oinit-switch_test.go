@@ -5,28 +5,40 @@ import (
 	"testing"
 )
 
+func cfg(allow, block []string) switchConfig {
+	c := switchConfig{allowUsers: map[string]bool{}, blockUsers: map[string]bool{}}
+	for _, a := range allow {
+		c.allowUsers[a] = true
+	}
+	for _, b := range block {
+		c.blockUsers[b] = true
+	}
+	return c
+}
+
 func TestClassifyTarget(t *testing.T) {
 	const curUid = 990 // the oinit service user
-	allow := map[string]bool{"root": true}
 
 	tests := []struct {
 		name     string
 		username string
 		uid      int
-		allowed  map[string]bool
+		cfg      switchConfig
 		wantOK   bool
 	}{
-		{"regular user accepted", "alice", 1000, allow, true},
-		{"current user skipped", "oinit", curUid, allow, false},
-		{"system user not allowlisted refused", "daemon", 2, allow, false},
-		{"root not allowlisted refused", "root", 0, map[string]bool{}, false},
-		{"root allowlisted accepted", "root", 0, allow, true},
-		{"system user allowlisted accepted", "svc", 50, map[string]bool{"svc": true}, true},
+		{"regular user accepted", "alice", 1000, cfg(nil, nil), true},
+		{"current user skipped", "oinit", curUid, cfg(nil, nil), false},
+		{"system user not allowlisted refused", "daemon", 2, cfg([]string{"root"}, nil), false},
+		{"root not allowlisted refused", "root", 0, cfg(nil, nil), false},
+		{"root allowlisted accepted", "root", 0, cfg([]string{"root"}, nil), true},
+		{"system user allowlisted accepted", "svc", 50, cfg([]string{"svc"}, nil), true},
+		{"blocked regular user refused", "deploy", 1001, cfg(nil, []string{"deploy"}), false},
+		{"block wins over allow for system user", "root", 0, cfg([]string{"root"}, []string{"root"}), false},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			ok, _ := classifyTarget(tt.username, tt.uid, curUid, tt.allowed)
+			ok, _ := classifyTarget(tt.username, tt.uid, curUid, tt.cfg)
 			if ok != tt.wantOK {
 				t.Fatalf("classifyTarget(%q, uid=%d) ok=%v, want %v", tt.username, tt.uid, ok, tt.wantOK)
 			}
@@ -49,23 +61,29 @@ func TestIsValidUsername(t *testing.T) {
 	}
 }
 
-func TestParseAllowUsers(t *testing.T) {
+func TestParseSwitchConfig(t *testing.T) {
 	in := "# oinit-switch config\n" +
 		"\n" +
 		"allow-users = root, svc daemon\n" +
+		"block-users = deploy, backup\n" +
 		"# allow-users = should-be-ignored\n"
-	got := parseAllowUsers(strings.NewReader(in))
+	got := parseSwitchConfig(strings.NewReader(in))
 
 	for _, want := range []string{"root", "svc", "daemon"} {
-		if !got[want] {
+		if !got.allowUsers[want] {
 			t.Errorf("expected %q to be allowed", want)
 		}
 	}
-	if got["should-be-ignored"] {
+	for _, want := range []string{"deploy", "backup"} {
+		if !got.blockUsers[want] {
+			t.Errorf("expected %q to be blocked", want)
+		}
+	}
+	if got.allowUsers["should-be-ignored"] {
 		t.Error("commented-out allow-users line was parsed")
 	}
-	if len(got) != 3 {
-		t.Errorf("got %d allowed users, want 3: %v", len(got), got)
+	if len(got.allowUsers) != 3 || len(got.blockUsers) != 2 {
+		t.Errorf("got allow=%v block=%v", got.allowUsers, got.blockUsers)
 	}
 }
 
