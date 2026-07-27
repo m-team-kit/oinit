@@ -23,22 +23,29 @@ multiple authentication workflows.
 
 ## Commands
 
-### `oinit add <host>[:port] [ca-url]`
+### `oinit add [-y] <host>[:port] [ca-url]`
 
 Registers an ssh-host for oinit management. The CA URL can be auto-discovered via DNS or specified
 manually.
 
+Before the CA's public key is written to `known_hosts` as a `@cert-authority` entry, `oinit add`
+prints its **SHA256 fingerprint** and asks you to confirm. That key is trusted to certify the host's
+SSH host key, so a wrong or spoofed CA here would let an attacker impersonate the server — only
+accept a fingerprint you have verified out of band (see [Verifying the CA key](#verifying-the-ca-key)).
+Pass `-y` / `--yes` to accept non-interactively (for scripted setups where the fingerprint is verified
+by other means, e.g. a DNSSEC-signed record).
+
 **Examples:**
 
 ```bash
-# Auto-discover CA via DNS
+# Auto-discover CA via DNS (prompts to confirm the CA fingerprint)
 oinit add login.example.com
 
-# Specify CA URL manually  
+# Specify CA URL manually
 oinit add login.example.com:2222 https://ca.example.com:8443
 
-# Add with custom port
-oinit add compute.example.com:2222
+# Accept the CA fingerprint non-interactively
+oinit add -y login.example.com
 ```
 
 ### `oinit del <host>[:port]`
@@ -59,6 +66,41 @@ Lists all hosts currently managed by oinit.
 ### `oinit match <host> <port>`
 
 Internal command used by SSH via ProxyCommand to obtain certificates. Not typically run manually.
+
+## Verifying the CA key
+
+When you run `oinit add`, oinit contacts the CA and shows the SHA256 fingerprint of the CA's host
+public key before trusting it:
+
+```
+i The CA for 'login.example.com' presented this host CA public key:
+i     SHA256:QCH4/cdpNYruggTKWS9K6NuGPM/VQJ76acYfObCAkq0 (ssh-ed25519)
+i It will be trusted to certify the SSH host key for 'login.example.com'.
+i Only continue if this fingerprint matches what the CA operator published.
+? Trust this CA key? [y/N]:
+```
+
+This is a trust-on-first-use decision: the CA key you accept is written to `known_hosts` as a
+`@cert-authority` entry and is thereafter trusted to vouch for the host's SSH host key. Confirm the
+fingerprint against a value the CA operator published through a trustworthy channel.
+
+### Publishing the fingerprint via DNSSEC (recommended)
+
+CA operators are encouraged to publish the CA host-key fingerprint in a **DNSSEC-signed** DNS record,
+so users (or automation) can verify it without a separate out-of-band exchange. Alongside the
+`_oinit-ca.<host>` discovery record, publish a TXT record such as:
+
+```
+_oinit-ca-fp.login.example.com.  IN TXT "SHA256:QCH4/cdpNYruggTKWS9K6NuGPM/VQJ76acYfObCAkq0"
+```
+
+Because the zone is DNSSEC-signed, a resolver that validates the signature can trust the fingerprint.
+A user compares the fingerprint printed by `oinit add` against the DNSSEC-validated record; scripted
+deployments that already validate the record can then run `oinit add -y` to accept it.
+
+> Note: oinit does not yet verify this record automatically — publishing and checking it is currently
+> an operational step. The `-y` flag exists so verified automation is not blocked by the interactive
+> prompt.
 
 ## CA Discovery
 

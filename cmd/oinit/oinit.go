@@ -35,9 +35,10 @@ const (
 	COMMAND_MATCH  = "match"
 
 	USAGE = "Usage:\n" +
-		"\toinit add    <ssh-host>[:port]\tAdd a host managed by oinit (CA found automatically (DNS or by assumptions).\n" +
-		"\toinit add    <ssh-host>[:port]  [http[s]://<ca-host>[:<port>]]\n" +
-		"                                \tAdd a host managed by oinit, with a specific CA.\n" +
+		"\toinit add    [-y] <ssh-host>[:port] [http[s]://<ca-host>[:<port>]]\n" +
+		"                                \tAdd a host managed by oinit (CA auto-discovered via DNS/HTTPS\n" +
+		"                                \tif not given). The CA host-key fingerprint is shown for\n" +
+		"                                \tconfirmation; -y / --yes accepts it non-interactively.\n" +
 		"\toinit del    <ssh-host>[:port]\tRemove oinit management for a host.\n" +
 		"\toinit list\t\t\tList all hosts managed by oinit.\n" +
 		"\toinit match  <ssh-host>[:port] [port]\n" +
@@ -64,9 +65,63 @@ func printUsage() {
 	fmt.Printf("oinit %s\n%s", version, USAGE)
 }
 
+// extractYesFlag removes "-y"/"--yes" from args and reports whether it was
+// present.
+func extractYesFlag(args []string) ([]string, bool) {
+	var rest []string
+	yes := false
+	for _, a := range args {
+		switch a {
+		case "-y", "--yes":
+			yes = true
+		default:
+			rest = append(rest, a)
+		}
+	}
+	return rest, yes
+}
+
+// confirmCAKey shows the SHA256 fingerprint of the CA host key and asks the user
+// to confirm trusting it before it is written to known_hosts as a
+// @cert-authority (that key vouches for the host's SSH host key, so trusting the
+// wrong CA enables server impersonation). Returns true if the key should be
+// trusted. When autoYes is set the prompt is skipped for non-interactive use.
+func confirmCAKey(host, pubkey string, autoYes bool) bool {
+	parsed, _, _, _, err := ssh.ParseAuthorizedKey([]byte(pubkey))
+	if err != nil {
+		log.LogError("The CA returned a public key that could not be parsed.")
+		return false
+	}
+
+	log.LogInfo("The CA for '" + host + "' presented this host CA public key:")
+	log.LogInfo("\t" + ssh.FingerprintSHA256(parsed) + " (" + parsed.Type() + ")")
+	log.LogInfo("It will be trusted to certify the SSH host key for '" + host + "'.")
+	log.LogInfo("Only continue if this fingerprint matches what the CA operator published.")
+
+	if autoYes {
+		return true
+	}
+
+	t, err := tty.Open()
+	if err != nil {
+		log.LogError("Cannot prompt for confirmation (no terminal). Re-run with --yes to accept.")
+		return false
+	}
+	defer t.Close()
+
+	log.PromptTTY("Trust this CA key? [y/N]: ")
+	answer, err := t.ReadString()
+	if err != nil {
+		return false
+	}
+	answer = strings.ToLower(strings.TrimSpace(answer))
+	return answer == "y" || answer == "yes"
+}
+
 // handleCommandAdd handles the 'add' command to add a host managed by oinit.
-// It takes the host and optional CA as arguments.
+// It takes the host and optional CA as arguments, plus an optional -y/--yes flag.
 func handleCommandAdd(args []string) {
+	args, autoYes := extractYesFlag(args)
 	if len(args) < 1 {
 		printUsage()
 		return
@@ -130,6 +185,12 @@ func handleCommandAdd(args []string) {
 		log.LogError("Error contactng the CA: " + err.Error())
 		return
 	} else {
+		// Confirm the CA host key before trusting it as a @cert-authority.
+		if !confirmCAKey(host, res.PublicKey, autoYes) {
+			log.LogError("Aborted: the CA key was not trusted. Host was not added.")
+			return
+		}
+
 		if err := sshutil.AddSSHKnownHost(host, port, res.PublicKey); err != nil {
 			log.LogWarn("Could not add public key to your known_hosts file.")
 
