@@ -28,10 +28,17 @@ mkdir -p /etc/ssh/
 # echo "    auth sufficient                 pam_succeed_if.so uid ne 0"
 
 if ! grep -q "pam_succeed_if.so use_uid user = oinit" /etc/pam.d/su; then
-    echo "auth [success=ignore default=1] pam_succeed_if.so use_uid user = oinit" > /tmp/su
-    echo "auth sufficient                 pam_succeed_if.so uid ne 0 " >> /tmp/su
-    cat /etc/pam.d/su >> /tmp/su
-    mv /tmp/su /etc/pam.d/su
+    # Build the new file in an unpredictable mktemp file (not a fixed /tmp/su,
+    # which a local user could pre-plant as a symlink), then move it into place
+    # atomically with the conventional 0644 permissions.
+    tmpfile="$(mktemp)"
+    {
+        echo "auth [success=ignore default=1] pam_succeed_if.so use_uid user = oinit"
+        echo "auth sufficient                 pam_succeed_if.so uid ne 0 "
+        cat /etc/pam.d/su
+    } > "$tmpfile"
+    chmod 0644 "$tmpfile"
+    mv "$tmpfile" /etc/pam.d/su
 fi
 
 echo ""

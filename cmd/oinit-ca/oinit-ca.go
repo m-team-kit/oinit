@@ -21,6 +21,12 @@ const (
 	// legitimate retries, with a low sustained rate.
 	CERT_RATE_PER_SEC = 0.5
 	CERT_RATE_BURST   = 5
+
+	// Per-client-IP rate limit for the host-info endpoint (GET /:host). More
+	// generous than certificate issuance since it is cheap and its result is
+	// cached, but still bounds abuse of the motley_cue-backed provider lookup.
+	HOST_RATE_PER_SEC = 5
+	HOST_RATE_BURST   = 20
 )
 
 // ConfigMiddleware is a middleware function that attaches a configuration object
@@ -87,7 +93,9 @@ func main() {
 		{
 			v1.GET("/", api.GetIndex)
 			v1.GET("", api.GetIndex)
-			v1.GET("/:host", api.GetHost)
+			v1.GET("/:host",
+				api.RateLimitMiddleware(HOST_RATE_PER_SEC, HOST_RATE_BURST),
+				api.GetHost)
 			// Although from the client perspective this route _gets_ a certificate, it
 			//  a) generates a new certificate every time (and thus is not cacheable), and
 			//  b) must accept an access token (which is a sensitive information better
@@ -109,5 +117,10 @@ func main() {
 	docs.SwaggerInfo.Description = SWAGGER_DESC
 
 	log.Printf("oinit-ca started")
+
+	// Install the API's custom log format once, before serving requests, so
+	// concurrent handlers don't race reconfiguring the global logger.
+	api.ConfigureLogging()
+
 	router.Run(addr)
 }

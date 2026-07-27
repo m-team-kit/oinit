@@ -161,6 +161,14 @@ func (writer customLog) Write(bytes []byte) (int, error) {
 	return fmt.Print("[API] " + time.Now().Format("2006/01/02 - 15:04:05") + " " + string(bytes))
 }
 
+// ConfigureLogging installs the API's custom format on the standard logger. It
+// mutates the process-global logger, so it must be called exactly once at
+// startup (not per request) to avoid a data race between concurrent handlers.
+func ConfigureLogging() {
+	log.SetFlags(0)
+	log.SetOutput(new(customLog))
+}
+
 var cache = util.NewTimedCache[string, []Provider]()
 
 // resolveProviders returns the OpenID Connect providers advertised by the
@@ -276,8 +284,6 @@ func GetOverview(c *gin.Context) {
 //	@Failure		502		{object}	ApiResponseError
 //	@Router			/{host} [get]
 func GetHost(c *gin.Context) {
-	log.SetFlags(0)
-	log.SetOutput(new(customLog))
 	var host UriHost
 
 	if c.ShouldBindUri(&host) != nil {
@@ -328,9 +334,6 @@ func GetHost(c *gin.Context) {
 //	@Failure		502		{object}	ApiResponseError
 //	@Router			/{host}/certificate [post]
 func PostHostCertificate(c *gin.Context) {
-	log.SetFlags(0)
-	log.SetOutput(new(customLog))
-
 	var host UriHost
 	var body FormHostCertificate
 
@@ -370,9 +373,11 @@ func PostHostCertificate(c *gin.Context) {
 		status, err = mcClient.GetUserStatus(body.Token)
 	}
 	if err != nil {
-		// HTTP error or network issue - pass through the specific error from libmotleycue
+		// Log the specific upstream/transport error for operators, but return a
+		// generic message: the raw error may carry internal detail (backend URLs,
+		// upstream status text) that should not reach an unauthenticated client.
 		log.Printf("motley_cue error: %s", err)
-		Error(c, http.StatusUnauthorized, err.Error())
+		Error(c, http.StatusUnauthorized, ERR_UNAUTHORIZED)
 		return
 	}
 
