@@ -405,7 +405,8 @@ func PostHostCertificate(c *gin.Context) {
 
 	// Call motley_cue to validate the token. If provisioning is enabled
 	// (default), use /user/deploy to also provision a local account.
-	// Otherwise, use /user/get_status for validation only.
+	// Otherwise, use /user/status for validation only (also yields the
+	// resolved sub/iss/username).
 	mcClient := libmotleycue.NewClient(info.URL)
 	var status libmotleycue.ApiResponseUserStatus
 	if info.ProvisionUser {

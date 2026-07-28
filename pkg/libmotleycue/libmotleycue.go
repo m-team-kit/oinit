@@ -66,14 +66,18 @@ const (
 	StateUndefined   UserStatusState = "undefined"
 )
 
-// Also called "FeudalResponse" in API docs
+// Also called "FeudalResponse" in API docs.
+//
+// The Sub, Iss and Username fields are only populated by the /user/status
+// endpoint (see GetUserStatus); /user/deploy returns only state, message and
+// credentials, leaving them empty.
 type ApiResponseUserStatus struct {
 	State       UserStatusState `json:"state"`
 	Message     string          `json:"message"`
 	Credentials Credentials     `json:"credentials"`
-	Sub         string          `json:"sub"`      // JWT subject claim, not yet supported by motley_cue
-	Iss         string          `json:"iss"`      // JWT issuer claim, not yet supported by motley_cue
-	Username    string          `json:"username"` // Username from token, not yet supported by motley_cue
+	Sub         string          `json:"sub"`      // OIDC subject claim, resolved by motley_cue
+	Iss         string          `json:"iss"`      // OIDC issuer claim, resolved by motley_cue
+	Username    string          `json:"username"` // Local account username, resolved by motley_cue
 }
 
 type Client struct {
@@ -224,10 +228,15 @@ func (c Client) getUser(path string, token string) (ApiResponseUserStatus, error
 //
 //   - state: one of the supported states, such as deployed, not_deployed, suspended.
 //   - message: could contain additional information, such as the local username
+//   - sub, iss, username: the resolved OIDC identity and local username
 //
 // Requires an authorized user.
+//
+// Note: /user/status is a superset of the older /user/get_status; it
+// additionally returns the sub, iss and username fields. Older motley_cue
+// versions without this endpoint will return 404.
 func (c Client) GetUserStatus(token string) (ApiResponseUserStatus, error) {
-	return c.getUser("/user/get_status", token)
+	return c.getUser("/user/status", token)
 }
 
 // GetUserDeploy calls GET /user/deploy.
