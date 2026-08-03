@@ -115,7 +115,6 @@ See `configs/config.sample.ini` for the CA config format. Key settings per host 
 ## Docker
 
 - `make oinit-ca-docker` builds using `build/Dockerfile` (multi-stage, Go 1.20 + Alpine)
-- `deploy/docker-compose.yml` runs the CA image, mounting `/etc/oinit-ca/` for config and keys
 
 ## Development
 

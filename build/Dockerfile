@@ -12,6 +12,6 @@ FROM alpine
 WORKDIR /app
 COPY --from=builder /build/oinit-ca /app/oinit-ca
 
-RUN mkdir -p /etc/oinit-ca
+RUN mkdir -p /etc/oinit
 
-ENTRYPOINT /app/oinit-ca 0.0.0.0:80 /etc/oinit-ca/config.ini
+ENTRYPOINT /app/oinit-ca 0.0.0.0:80 /etc/oinit/ca-config.ini

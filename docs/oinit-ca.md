@@ -47,14 +47,14 @@ The server uses an INI-format configuration file with:
 - Global defaults section
 - Host group sections for different sets of hosts
 
-Example configuration (`/etc/oinit-ca/config.ini`):
+Example configuration (`/etc/oinit/ca-config.ini`):
 
 ```ini
 # Global defaults - can be overridden per host group
-host-ca-privkey = /etc/oinit-ca/host-ca
-host-ca-pubkey  = /etc/oinit-ca/host-ca.pub
-user-ca-privkey = /etc/oinit-ca/user-ca
-user-ca-pubkey  = /etc/oinit-ca/user-ca.pub
+host-ca-privkey = /etc/oinit/host-ca
+host-ca-pubkey  = /etc/oinit/host-ca.pub
+user-ca-privkey = /etc/oinit/user-ca
+user-ca-pubkey  = /etc/oinit/user-ca.pub
 
 # Certificate validity: "token" or seconds (e.g., 3600 = 1 hour)
 # cert-validity = token
@@ -79,8 +79,8 @@ compute.example.com = https://login.example.com:8443
 *.dev.example.com = https://dev-login.example.com:8443
 
 # Override CA keys for this group (optional)
-#user-ca-privkey = /etc/oinit-ca/example-user-ca
-#user-ca-pubkey  = /etc/oinit-ca/example-user-ca.pub
+#user-ca-privkey = /etc/oinit/example-user-ca
+#user-ca-pubkey  = /etc/oinit/example-user-ca.pub
 
 # Another host group with different settings
 [university.edu]
@@ -101,14 +101,14 @@ hpc.university.edu = https://auth.university.edu:8080
 
 ```bash
 # Generate user CA key pair
-ssh-keygen -t ed25519 -f /etc/oinit-ca/user-ca -C "oinit User CA"
+ssh-keygen -t ed25519 -f /etc/oinit/user-ca -C "oinit User CA"
 
 # Generate host CA key pair (for future use)
-ssh-keygen -t ed25519 -f /etc/oinit-ca/host-ca -C "oinit Host CA"
+ssh-keygen -t ed25519 -f /etc/oinit/host-ca -C "oinit Host CA"
 
 # Set appropriate permissions
-chmod 600 /etc/oinit-ca/*-ca
-chmod 644 /etc/oinit-ca/*.pub
+chmod 600 /etc/oinit/*-ca
+chmod 644 /etc/oinit/*.pub
 ```
 
 ### Running the Server
@@ -119,7 +119,7 @@ chmod 644 /etc/oinit-ca/*.pub
 oinit-ca -c <path/to/config> [-l <host:port>]
 
 # Example
-oinit-ca -c /etc/oinit-ca/config.ini -l 0.0.0.0:8443 
+oinit-ca -c /etc/oinit/ca-config.ini -l 0.0.0.0:8443 
 ```
 
 #### Systemd Service
@@ -132,7 +132,7 @@ After=network.target
 [Service]
 Type=simple
 User=oinit
-ExecStart=/usr/local/bin/oinit-ca -c /etc/oinit-ca/config.ini
+ExecStart=/usr/local/bin/oinit-ca -c /etc/oinit/ca-config.ini
 Restart=on-failure
 
 [Install]
@@ -149,9 +149,9 @@ services:
     ports:
       - "8443:8443"
     volumes:
-      - ./config.ini:/etc/oinit-ca/config.ini:ro
-      - ./keys:/etc/oinit-ca/keys:ro
-    command: ["-c", "/etc/oinit-ca/config.ini"]
+      - ./config.ini:/etc/oinit/ca-config.ini:ro
+      - ./keys:/etc/oinit/keys:ro
+    command: ["-c", "/etc/oinit/ca-config.ini"]
 ```
 
 
@@ -247,5 +247,5 @@ Enable debug logging by setting Gin mode:
 
 ```bash
 export GIN_MODE=debug
-oinit-ca 0.0.0.0:8443 /etc/oinit-ca/config.ini
+oinit-ca 0.0.0.0:8443 /etc/oinit/ca-config.ini
 ```

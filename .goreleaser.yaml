@@ -153,7 +153,7 @@ nfpms:
       - src: copyright
         dst: /usr/share/doc/{{ .PackageName }}/copyright
       - src: configs/config.sample.ini
-        dst: /etc/oinit-ca/config.ini
+        dst: /etc/oinit/ca-config.ini
         type: config
       - src: init/oinit-ca-packaged.service
         dst: /usr/lib/systemd/system/oinit-ca.service

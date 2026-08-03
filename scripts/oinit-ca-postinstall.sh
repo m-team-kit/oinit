@@ -10,6 +10,6 @@ if command -v systemctl > /dev/null && [ "$(systemctl is-system-running)" != "of
     
 fi
 
-test -d /etc/oinit-ca || mkdir -p /etc/oinit-ca/
-test -e /etc/oinit-ca/user-ca || ssh-keygen -t ed25519 -f /etc/oinit-ca/user-ca -N "" > /dev/null
-test -e /etc/oinit-ca/host-ca || ssh-keygen -t ed25519 -f /etc/oinit-ca/host-ca -N "" > /dev/null
+test -d /etc/oinit || mkdir -p /etc/oinit/
+test -e /etc/oinit/user-ca || ssh-keygen -t ed25519 -f /etc/oinit/user-ca -N "" > /dev/null
+test -e /etc/oinit/host-ca || ssh-keygen -t ed25519 -f /etc/oinit/host-ca -N "" > /dev/null

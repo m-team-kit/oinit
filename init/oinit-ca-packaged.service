@@ -2,7 +2,7 @@
 Description=oinit Certificate Authority
 
 [Service]
-ExecStart=/usr/sbin/oinit-ca -c /etc/oinit-ca/config.ini
+ExecStart=/usr/sbin/oinit-ca -c /etc/oinit/ca-config.ini
 
 [Install]
 WantedBy=multi-user.target

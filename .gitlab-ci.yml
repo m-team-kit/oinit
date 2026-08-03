@@ -174,12 +174,12 @@ package:
 
     echo "Configuring sshd..."
     echo -e 'y\n' | ssh-keygen -t ed25519 -f /etc/ssh/host-key -N "" > /dev/null
-    echo -e 'y\n' | ssh-keygen -s /etc/oinit-ca/host-ca -I localhost -h -n localhost /etc/ssh/host-key > /dev/null
+    echo -e 'y\n' | ssh-keygen -s /etc/oinit/host-ca -I localhost -h -n localhost /etc/ssh/host-key > /dev/null
 
     echo "
     HostKey				/etc/ssh/host-key
     HostCertificate		/etc/ssh/host-key-cert.pub
-    TrustedUserCAKeys	/etc/oinit-ca/user-ca.pub" >> /etc/ssh/sshd_config
+    TrustedUserCAKeys	/etc/oinit/user-ca.pub" >> /etc/ssh/sshd_config
 
     sed -i '1s;^;auth [success=ignore default=1] pam_succeed_if.so use_uid user = oinit\nauth sufficient pam_succeed_if.so uid ne 0\n\n;' /etc/pam.d/su
 
@@ -189,9 +189,9 @@ package:
     echo "Configuring oinit-ca..."
     echo "
     [localhost]
-    localhost = http://localhost:8080" >> /etc/oinit-ca/config.ini
+    localhost = http://localhost:8080" >> /etc/oinit/ca-config.ini
 
-    /usr/sbin/oinit-ca -l 127.0.0.1:8081 -c /etc/oinit-ca/config.ini > /dev/null &
+    /usr/sbin/oinit-ca -l 127.0.0.1:8081 -c /etc/oinit/ca-config.ini > /dev/null &
 
     echo "Starting ssh-agent..."
     eval `ssh-agent`
