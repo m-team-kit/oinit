@@ -30,6 +30,7 @@ const (
 	ERR_UNKNOWN_HOST   = "Unknown host."
 	ERR_GATEWAY_DOWN   = "motley_cue is not reachable."
 	ERR_UNAUTHORIZED   = "User is not authorized or suspended."
+	ERR_TOKEN_REJECTED = "Access token was rejected (invalid or expired)."
 	ERR_INTERNAL_ERROR = "Internal server error."
 	ERR_RATE_LIMITED   = "Too many requests, please slow down."
 )
@@ -416,10 +417,22 @@ func PostHostCertificate(c *gin.Context) {
 	}
 	if err != nil {
 		// Log the specific upstream/transport error for operators, but return a
-		// generic message: the raw error may carry internal detail (backend URLs,
-		// upstream status text) that should not reach an unauthenticated client.
+		// message chosen from the failure category: the raw error may carry
+		// internal detail (backend URLs, upstream status text, even the token)
+		// that must not reach an unauthenticated client. Distinguishing a
+		// rejected token from a genuine authorization failure and from an
+		// unreachable backend avoids the misleading "not authorized or
+		// suspended" response when the real problem is an invalid/expired token
+		// (e.g. oidc-agent handed out a stale one).
 		log.Printf("motley_cue error: %s", err)
-		Error(c, http.StatusUnauthorized, ERR_UNAUTHORIZED)
+		switch {
+		case errors.Is(err, libmotleycue.ErrTokenRejected):
+			Error(c, http.StatusUnauthorized, ERR_TOKEN_REJECTED)
+		case errors.Is(err, libmotleycue.ErrForbidden):
+			Error(c, http.StatusForbidden, ERR_UNAUTHORIZED)
+		default:
+			Error(c, http.StatusBadGateway, ERR_GATEWAY_DOWN)
+		}
 		return
 	}
 

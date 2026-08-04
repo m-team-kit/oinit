@@ -311,10 +311,10 @@ func getTokenFromOidcAgent(caClient liboinitca.Client, host string) (string, str
 
 	token, err := oidc.GetToken(provider, scopes)
 	if err != nil {
-		log.LogFatalTTY("Could not get token from oidc-agent: " + err.Error())
-	}
-	if token == "" {
-		log.LogFatalTTY("Received an empty token from oidc-agent.")
+		// Render the agent's own error together with any help text it provided
+		// (e.g. "run 'oidc-add <account>'"), rather than a bare string, so the
+		// user learns what to actually do about it.
+		log.LogFatalTTY("Could not get an access token from oidc-agent for " + provider + ":\n" + oidc.AgentErrorMessage(err))
 	}
 
 	return token, provider
@@ -553,11 +553,20 @@ func handleCommandMatch(args []string) {
 	// even when the access token is not a JWT (opaque token).
 	var token string
 	var issuer string
+	// tokenSource records where the token was obtained, so that if the CA later
+	// rejects it the user is told which source supplied the bad token (a stale
+	// cached bearer-token file is a common cause and otherwise looks like an
+	// oidc-agent problem).
+	var tokenSource string
 
 	// ... from environment variable
 	log.LogDebugTTY("Searching token in environment")
 	token = util.Getenvs("ACCESS_TOKEN", "BEARER_TOKEN", "OIDC", "OS_ACCESS_TOKEN",
 		"OIDC_ACCESS_TOKEN", "WATTS_TOKEN", "WATTSON_TOKEN")
+	if token != "" {
+		tokenSource = "an environment variable (ACCESS_TOKEN/BEARER_TOKEN/OIDC/...)"
+		log.LogDebugTTY("Using token from " + tokenSource)
+	}
 
 	// ... from BEARER_TOKEN_FILE
 	if token == "" {
@@ -566,6 +575,7 @@ func handleCommandMatch(args []string) {
 		if token_file != "" {
 			if tok, ok := readTokenFile(token_file); ok {
 				token = tok
+				tokenSource = "file " + token_file + " (BEARER_TOKEN_FILE)"
 				log.LogDebugTTY("Using token from file: " + token_file)
 			}
 		}
@@ -579,6 +589,7 @@ func handleCommandMatch(args []string) {
 			tokenFile := filepath.Join(xdgRuntimeDir, fmt.Sprintf("bt_u%d", userID))
 			if tok, ok := readTokenFile(tokenFile); ok {
 				token = tok
+				tokenSource = "file " + tokenFile
 				log.LogDebugTTY("Using token from file: " + tokenFile)
 			}
 		}
@@ -590,6 +601,7 @@ func handleCommandMatch(args []string) {
 		tokenFile := fmt.Sprintf("/tmp/bt_u%d", userID)
 		if tok, ok := readTokenFile(tokenFile); ok {
 			token = tok
+			tokenSource = "file " + tokenFile
 			log.LogDebugTTY("Using token from file: " + tokenFile)
 		}
 	}
@@ -600,6 +612,7 @@ func handleCommandMatch(args []string) {
 			// Use oidc-agent to get token. The issuer (provider URL)
 			// is known from the provider selection.
 			token, issuer = getTokenFromOidcAgent(caClient, host)
+			tokenSource = "oidc-agent"
 		}
 	}
 	// ... manual token entry
@@ -607,6 +620,7 @@ func handleCommandMatch(args []string) {
 		log.LogDebugTTY("Searching token in manual prompt")
 		log.LogDebugTTY("oidc-agent is not running.")
 		token = promptForManualToken(caClient, host)
+		tokenSource = "manual entry"
 	}
 
 	// For tokens obtained from environment variables or files, the issuer
@@ -626,7 +640,15 @@ func handleCommandMatch(args []string) {
 
 	res, err := caClient.PostHostCertificate(host, pubkey, token, issuer)
 	if err != nil {
-		log.LogFatalTTY("CA responded: " + err.Error())
+		msg := "CA responded: " + err.Error()
+		if tokenSource != "" {
+			// Point at the token's origin: a rejected token most often means a
+			// stale one from a cached file or environment variable shadowing
+			// oidc-agent, which is otherwise hard to tell apart from an
+			// authorization failure.
+			msg += "\n  Maybe the problem was the access token, which was obtained from " + tokenSource + "."
+		}
+		log.LogFatalTTY(msg)
 	}
 
 	certPk, _, _, _, err := ssh.ParseAuthorizedKey([]byte(res.Certificate))

@@ -20,6 +20,24 @@ const (
 	ERR_SERVER_RESPONSE_CODE = "server responded with code: %d"
 )
 
+// Failure categories returned by the user endpoints (GetUserStatus /
+// GetUserDeploy). Callers can classify a failure with errors.Is without parsing
+// message strings. The returned error wraps one of these together with the
+// upstream detail; that detail is meant for server-side logs only and must not
+// be forwarded to end users verbatim (it may echo the access token or other
+// request data).
+var (
+	// ErrTokenRejected means motley_cue rejected the access token itself
+	// (HTTP 401) - typically invalid, malformed or expired.
+	ErrTokenRejected = errors.New("access token rejected")
+	// ErrForbidden means the token was accepted but the user is not permitted
+	// (HTTP 403) - e.g. suspended or access denied.
+	ErrForbidden = errors.New("access forbidden")
+	// ErrUpstream means motley_cue could not be reached or returned an
+	// unexpected/unusable response (transport error, 404, 422, 5xx, ...).
+	ErrUpstream = errors.New("motley_cue request failed")
+)
+
 type ApiResponseDetail struct {
 	Detail string `json:"detail"`
 }
@@ -183,7 +201,7 @@ func (c Client) getUser(path string, token string) (ApiResponseUserStatus, error
 
 	req, err := http.NewRequest(http.MethodGet, c.addr+path, nil)
 	if err != nil {
-		return response, errors.New(ERR_REQUEST)
+		return response, fmt.Errorf("%w: %s", ErrUpstream, ERR_REQUEST)
 	}
 
 	req.Header.Set("Authorization", "Bearer "+token)
@@ -191,7 +209,7 @@ func (c Client) getUser(path string, token string) (ApiResponseUserStatus, error
 	client := http.Client{}
 	res, err := client.Do(req)
 	if err != nil {
-		return response, errors.New(ERR_REQUEST)
+		return response, fmt.Errorf("%w: %s", ErrUpstream, ERR_REQUEST)
 	}
 
 	defer res.Body.Close()
@@ -203,22 +221,22 @@ func (c Client) getUser(path string, token string) (ApiResponseUserStatus, error
 		return response, parseResponse(res.Body, &response)
 	case http.StatusUnauthorized:
 		log.Printf("[libmotleycue] Unauthorized (401) - token may be invalid or expired")
-		return response, parseError(res.Body)
+		return response, fmt.Errorf("%w: %w", ErrTokenRejected, parseError(res.Body))
 	case http.StatusForbidden:
 		log.Printf("[libmotleycue] Forbidden (403) - user may be suspended or access denied")
-		return response, parseError(res.Body)
+		return response, fmt.Errorf("%w: %w", ErrForbidden, parseError(res.Body))
 	case http.StatusNotFound:
 		log.Printf("[libmotleycue] Not Found (404) - user may not exist")
-		return response, parseError(res.Body)
+		return response, fmt.Errorf("%w: %w", ErrUpstream, parseError(res.Body))
 	case http.StatusUnprocessableEntity:
 		log.Printf("[libmotleycue] Unprocessable Entity (422) - request format issue")
 		// In this case, the response body has a different structure and cannot
 		// be parsed easily into a ApiResponseDetail struct, therefore return
 		// custom error.
-		return response, fmt.Errorf(ERR_SERVER_RESPONSE_CODE, res.StatusCode)
+		return response, fmt.Errorf("%w: "+ERR_SERVER_RESPONSE_CODE, ErrUpstream, res.StatusCode)
 	default:
 		log.Printf("[libmotleycue] Unexpected status code: %d", res.StatusCode)
-		return response, fmt.Errorf(ERR_SERVER_RESPONSE_CODE, res.StatusCode)
+		return response, fmt.Errorf("%w: "+ERR_SERVER_RESPONSE_CODE, ErrUpstream, res.StatusCode)
 	}
 }
 
