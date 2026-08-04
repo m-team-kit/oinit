@@ -646,7 +646,7 @@ func handleCommandMatch(args []string) {
 			// stale one from a cached file or environment variable shadowing
 			// oidc-agent, which is otherwise hard to tell apart from an
 			// authorization failure.
-			msg += "\n  Maybe the problem was the access token, which was obtained from " + tokenSource + "."
+			msg += "\n  The access token was obtained from " + tokenSource + "."
 		}
 		log.LogFatalTTY(msg)
 	}
