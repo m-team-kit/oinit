@@ -191,3 +191,54 @@ func TestRequireTokenAudParsing(t *testing.T) {
 		})
 	}
 }
+
+// TestCacheDurationDefault verifies that cache-duration is optional (falls back
+// to DefaultCacheDuration) and that an explicit value is respected. It builds
+// the config directly because the shared loadTestConfig helper always sets
+// cache-duration.
+func TestCacheDurationDefault(t *testing.T) {
+	tests := []struct {
+		name string
+		line string // cache-duration line for the default section (may be empty)
+		want int
+	}{
+		{name: "absent falls back to default", line: "", want: DefaultCacheDuration},
+		{name: "explicit value is respected", line: "cache-duration = 600\n", want: 600},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			priv, pub := writeTestKeys(t, dir)
+
+			ini := "" +
+				"host-ca-privkey = " + priv + "\n" +
+				"host-ca-pubkey  = " + pub + "\n" +
+				"user-ca-privkey = " + priv + "\n" +
+				"user-ca-pubkey  = " + pub + "\n" +
+				"cert-validity   = 21600\n" +
+				tc.line +
+				"\n" +
+				"[example.com]\n" +
+				"login.example.com = https://login.example.com:8443\n"
+
+			path := filepath.Join(dir, "config.ini")
+			if err := os.WriteFile(path, []byte(ini), 0600); err != nil {
+				t.Fatalf("write config: %v", err)
+			}
+
+			conf, err := Load(path)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+
+			info, err := conf.GetInfo("login.example.com")
+			if err != nil {
+				t.Fatalf("GetInfo: %v", err)
+			}
+			if info.CacheDuration != tc.want {
+				t.Errorf("CacheDuration = %d, want %d", info.CacheDuration, tc.want)
+			}
+		})
+	}
+}

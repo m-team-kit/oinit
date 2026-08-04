@@ -16,6 +16,12 @@ import (
 
 const (
 	ERR_HOST_NOT_FOUND = "host not found in config"
+
+	// DefaultCacheDuration is the fallback TTL (seconds) for the cached
+	// motley_cue provider list (including OIDC scopes) when a host group does
+	// not set cache-duration. Kept short so scope changes on motley_cue are
+	// picked up quickly.
+	DefaultCacheDuration = 10
 )
 
 type DefaultOptions struct {
@@ -152,9 +158,14 @@ func Load(path string) (Config, error) {
 				hg.PathHostCAPublicKey == "" ||
 				hg.PathUserCAPrivateKey == "" ||
 				hg.PathUserCAPublicKey == "" ||
-				hg.CertValidity == "" ||
-				hg.CacheDuration == 0) {
+				hg.CertValidity == "") {
 			return conf, errors.New("missing option in hostgroup " + hg.Name)
+		}
+
+		// cache-duration is optional; fall back to a short default so scope
+		// changes on motley_cue propagate quickly.
+		if hg.CacheDuration == 0 {
+			hg.CacheDuration = DefaultCacheDuration
 		}
 
 		// Apply defaults for new options
