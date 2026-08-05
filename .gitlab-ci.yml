@@ -120,6 +120,36 @@ package:
     paths:
       - "results/*"
 
+# Publish the macOS/Linux client via Homebrew. Unlike the `package` job (which
+# only builds, for the repo.data.kit.edu apt/yum publish), this runs a full
+# goreleaser release on tags: it creates a GitLab Release, uploads the archives
+# to this project's generic Package Registry (the cask's download source), and
+# pushes the generated cask to the Homebrew tap.
+#
+# Requires:
+#   - CI_JOB_TOKEN (automatic): GitLab release + Package Registry upload
+#     (goreleaser uses it via gitlab_urls.use_job_token in .goreleaser.yaml).
+#   - HOMEBREW_TAP_TOKEN (masked CI/CD variable, Settings -> CI/CD -> Variables):
+#     a token with write access to the Homebrew tap repository.
+homebrew:
+  stage: publish
+  only:
+    refs:
+      - tags
+  image:
+    name: goreleaser/goreleaser:latest
+    entrypoint: [""]
+  tags:
+    - linux
+  variables:
+    GIT_STRATEGY: clone
+    GIT_DEPTH: 0
+  before_script:
+    - apk add --no-cache bash git
+    - git config --global --add safe.directory "$CI_PROJECT_DIR"
+  script:
+    - goreleaser release --clean --skip docker
+
 .setup-repo-deb: &setup-repo-deb
   - |
     echo "Installing packages..."

@@ -2,6 +2,21 @@ version: 2
 release:
   draft: true
   prerelease: auto
+
+# Self-hosted GitLab (codebase.helmholtz.cloud) is the release target when
+# goreleaser runs in GitLab CI (release provider is auto-detected from the git
+# remote). Archives are uploaded to the project's generic Package Registry,
+# which gives stable, public download URLs that the Homebrew cask points at, so
+# the client is distributed entirely from GitLab - no GitHub dependency for the
+# binaries. use_job_token lets CI_JOB_TOKEN create the release and upload the
+# packages; if that token lacks permission, set a GITLAB_TOKEN (api scope)
+# instead.
+gitlab_urls:
+  api: https://codebase.helmholtz.cloud/api/v4
+  download: https://codebase.helmholtz.cloud
+  use_package_registry: true
+  use_job_token: true
+
 dist: results
 builds:
   - id: oinit
@@ -247,17 +262,21 @@ homebrew_casks:
       - bundle
     binaries:
       - oinit
-    # The tap is a separate GitHub repository named homebrew-<x>. goreleaser
-    # pushes the generated Casks/oinit.rb here during `goreleaser release`.
-    # This repo must exist. Users then install with:
+    # Download URL for the archive: the GitLab generic Package Registry of this
+    # project (populated by the GitLab release above). This keeps the binary
+    # distribution on codebase.helmholtz.cloud. CI_API_V4_URL and CI_PROJECT_ID
+    # are provided automatically by GitLab CI.
+    url:
+      template: "{{ .Env.CI_API_V4_URL }}/projects/{{ .Env.CI_PROJECT_ID }}/packages/generic/{{ .ProjectName }}/{{ .Tag }}/{{ .ArtifactName }}"
+    # The tap is a separate Git repository named homebrew-<x> that goreleaser
+    # pushes the generated Casks/oinit.rb into during `goreleaser release`. The
+    # tap repo must exist. Users then install with:
     #   brew install KIT-SCC/oinit/oinit
     repository:
       owner: KIT-SCC
       name: homebrew-oinit
-      # The default GITHUB_TOKEN is scoped to the release repo and cannot push
-      # to the tap repo, so a dedicated token (a PAT or GitHub App token with
-      # contents:write on the tap) is required. Provided via the release
-      # workflow environment; see .github/workflows/publish-release.yml.
+      # PAT (or GitHub App token) with contents:write on the tap repo. In GitLab
+      # CI this is a masked CI/CD variable, read from the environment here.
       token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
     directory: Casks
     homepage: "https://codebase.helmholtz.cloud/m-team/oidc/ssh/oinit/"
