@@ -57,7 +57,8 @@ builds:
     mod_timestamp: "{{.CommitTimestamp}}"
 
 archives:
-  - formats: ["tar.gz"]
+  - id: bundle
+    formats: ["tar.gz"]
     name_template: >-
       {{ .ProjectName }}_
       {{- title .Os }}_
@@ -129,7 +130,7 @@ nfpms:
 
   - id: oinit-ca
     package_name: oinit-ca
-    builds:
+    ids:
       - oinit-ca
     homepage: https://codebase.helmholtz.cloud/m-team/oidc/ssh/oinit/
     maintainer: Marcus Hardt <hardt@kit.edu>
@@ -169,7 +170,7 @@ nfpms:
 
   - id: oinit-openssh
     package_name: oinit-openssh
-    builds:
+    ids:
       - oinit-switch
       - oinit-shell
     homepage: https://codebase.helmholtz.cloud/m-team/oidc/ssh/oinit/
@@ -233,6 +234,50 @@ nfpms:
       lintian_overrides:
         - statically-linked-binary
         - changelog-file-missing-in-native-package
+
+homebrew_casks:
+  # Homebrew cask for the macOS client only. oinit-ca, oinit-shell and
+  # oinit-switch are Linux-only server components (PAM/su/systemd) and are not
+  # offered via Homebrew. (goreleaser casks are macOS-only and pull the darwin
+  # archives automatically.)
+  - name: oinit
+    # Archive id to source the cask from. The (single) archive bundles all
+    # binaries; binaries: below installs only the client from it.
+    ids:
+      - bundle
+    binaries:
+      - oinit
+    # The tap is a separate GitHub repository named homebrew-<x>. goreleaser
+    # pushes the generated Casks/oinit.rb here during `goreleaser release`.
+    # This repo must exist. Users then install with:
+    #   brew install KIT-SCC/oinit/oinit
+    repository:
+      owner: KIT-SCC
+      name: homebrew-oinit
+      # The default GITHUB_TOKEN is scoped to the release repo and cannot push
+      # to the tap repo, so a dedicated token (a PAT or GitHub App token with
+      # contents:write on the tap) is required. Provided via the release
+      # workflow environment; see .github/workflows/publish-release.yml.
+      token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
+    directory: Casks
+    homepage: "https://codebase.helmholtz.cloud/m-team/oidc/ssh/oinit/"
+    description: "Client to use SSH certificates with OpenSSH via OpenID Connect"
+    # Don't try to push a cask for snapshot/prerelease/dirty builds.
+    skip_upload: auto
+    commit_author:
+      name: goreleaser
+      email: noreply@kit.edu
+    hooks:
+      post:
+        # The binary is not code-signed/notarized, so strip the Gatekeeper
+        # quarantine attribute on install to avoid "cannot be opened because the
+        # developer cannot be verified". Proper signing/notarization (Apple
+        # Developer ID) would remove the need for this.
+        install: |
+          if OS.mac?
+            system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/oinit"]
+          end
+
 # dockers:
 #   - id: oinit-ca
 #     ids:

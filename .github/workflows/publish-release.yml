@@ -52,3 +52,8 @@ jobs:
           REGISTRY: "ghcr.io"
           IMAGE: "lbrocke/oinit-ca"
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Token used to push the Homebrew formula to the KIT-SCC/homebrew-oinit
+          # tap (the default GITHUB_TOKEN cannot write to another repository).
+          # Create a repo/org secret HOMEBREW_TAP_TOKEN holding a PAT (or GitHub
+          # App token) with contents:write on that tap repo.
+          HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
