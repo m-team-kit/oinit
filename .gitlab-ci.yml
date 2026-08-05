@@ -166,6 +166,11 @@ homebrew:
   before_script:
     - apk add --no-cache bash git
     - git config --global --add safe.directory "$CI_PROJECT_DIR"
+    # goreleaser selects the release provider (GitLab) from GITLAB_TOKEN and uses
+    # it to create the GitLab Release. use_job_token: true in .goreleaser.yaml
+    # tells goreleaser this value is a CI job token. (HOMEBREW_TAP_TOKEN, set as
+    # a CI/CD variable, authenticates the separate push to the GitHub tap.)
+    - export GITLAB_TOKEN="$CI_JOB_TOKEN"
   script:
     - |
       [[ "$CI_COMMIT_REF_NAME" == "${PREREL_BRANCH_NAME}" ]] && {
