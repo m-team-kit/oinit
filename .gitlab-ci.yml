@@ -145,48 +145,79 @@ package:
 #     (goreleaser uses it via gitlab_urls.use_job_token in .goreleaser.yaml).
 #   - HOMEBREW_TAP_TOKEN (masked CI/CD variable, Settings -> CI/CD -> Variables):
 #     a token with write access to the Homebrew tap repository.
-homebrew:
-  stage: publish
-  # branches + merge_requests: the ci-voodoo workflow runs an MR pipeline
-  # (not a branch pipeline) when a branch has an open merge request, so listing
-  # only "branches" would silently skip the job in that case. Once stable,
-  # narrow this to the default branch.
-  only:
-    refs:
-      - branches
-      - merge_requests
-  image:
-    name: goreleaser/goreleaser:latest
-    entrypoint: [""]
-  tags:
-    - linux
-  variables:
-    GIT_STRATEGY: clone
-    GIT_DEPTH: 0
-  before_script:
-    - apk add --no-cache bash git
-    - git config --global --add safe.directory "$CI_PROJECT_DIR"
-    # goreleaser selects the release provider (GitLab) from GITLAB_TOKEN and uses
-    # it to create the GitLab Release. use_job_token: true in .goreleaser.yaml
-    # tells goreleaser this value is a CI job token. (HOMEBREW_TAP_TOKEN, set as
-    # a CI/CD variable, authenticates the separate push to the GitHub tap.)
-    - export GITLAB_TOKEN="$CI_JOB_TOKEN"
-  script:
-    - |
-      if [ "$CI_COMMIT_REF_NAME" = "$CI_DEFAULT_BRANCH" ]; then
-          # Real release: create the GitLab Release, upload the archives to the
-          # Package Registry, and push the cask to the Homebrew tap. The real
-          # release tag is expected to already be on this commit.
-          goreleaser release --clean --skip docker
-      else
-          # Any other branch: build and generate the cask locally only - no tag,
-          # no GitLab Release, no tap push (so no throwaway "-dev" tags are
-          # created on the server). Inspect the cask and the macOS archives via
-          # this job's artifacts.
-          goreleaser release --snapshot --clean --skip docker
-      fi
-  artifacts:
-    paths:
-      - results/homebrew/Casks/oinit.rb
-      - results/*Darwin*.tar.gz
-    expire_in: 1 week
+# homebrew:
+#   stage: publish
+#   # branches + merge_requests: the ci-voodoo workflow runs an MR pipeline
+#   # (not a branch pipeline) when a branch has an open merge request, so listing
+#   # only "branches" would silently skip the job in that case. Once stable,
+#   # narrow this to the default branch.
+#   only:
+#     refs:
+#       - branches
+#       - merge_requests
+#   image:
+#     name: goreleaser/goreleaser:latest
+#     entrypoint: [""]
+#   tags:
+#     - linux
+#   variables:
+#     GIT_STRATEGY: clone
+#     GIT_DEPTH: 0
+#   before_script:
+#     - apk add --no-cache bash git
+#     - git config --global --add safe.directory "$CI_PROJECT_DIR"
+#     # goreleaser selects the release provider (GitLab) from GITLAB_TOKEN and uses
+#     # it to create the GitLab Release. use_job_token: true in .goreleaser.yaml
+#     # tells goreleaser this value is a CI job token. (HOMEBREW_TAP_TOKEN, set as
+#     # a CI/CD variable, authenticates the separate push to the GitHub tap.)
+#     - export GITLAB_TOKEN="$CI_JOB_TOKEN"
+#   script:
+#     - |
+#       if [ "$CI_COMMIT_REF_NAME" = "$CI_DEFAULT_BRANCH" ]; then
+#           # Real release: create the GitLab Release, upload the archives to the
+#           # Package Registry, and push the cask to the Homebrew tap. The real
+#           # release tag is expected to already be on this commit.
+#           goreleaser release --clean --skip docker
+#       else
+#           # Any other branch: build and generate the cask locally only - no tag,
+#           # no GitLab Release, no tap push (so no throwaway "-dev" tags are
+#           # created on the server). Inspect the cask and the macOS archives via
+#           # this job's artifacts.
+#           goreleaser release --snapshot --clean --skip docker
+#       fi
+#   artifacts:
+#     paths:
+#       - results/homebrew/Casks/oinit.rb
+#       - results/*Darwin*.tar.gz
+#     expire_in: 1 week
+#
+# homebrew is blocked by moving to github.com/m-team first:
+#
+# ● That 401 is the real wall, and the docs just settled it: pushing the tap to a different SCM than the release (GitLab release → GitHub
+#   tap) is a GoReleaser Pro feature (token_type, and the SSH git: method too). In open-source GoReleaser, the tap must live on the same
+#   host as the release — so a GitLab release wants a GitLab tap. That's why it's hitting codebase.helmholtz.cloud/.../homebrew-oinit
+#   and 401'ing, and why your GitHub homebrew-oinit was never going to get written to.
+#
+#   So the GitHub tap can't work here without paying for Pro. Given you explicitly don't want to depend on GitHub, the clean answer lines
+#   up perfectly:
+#
+#   Recommended: move the tap to GitLab (codebase.helmholtz.cloud)
+#
+#   - Same instance as the release → works in OSS GoReleaser, no cross-SCM.
+#   - Fully GitHub-free (your goal), and the GitHub tap repo + PAT are no longer needed.
+#   - Install becomes: brew tap oinit https://codebase.helmholtz.cloud/<path>/homebrew-oinit.git && brew install --cask oinit.
+#
+#   What it needs from you:
+#   1. Create a GitLab project for the tap, e.g. m-team/oidc/ssh/homebrew-oinit (or wherever you like).
+#   2. A GitLab token that can write to that tap project — CI_JOB_TOKEN is scoped to this project only, so use a group access token (if
+#   the tap is under m-team, it can write to both) or a project access token on the tap, with api + write_repository. Put it in the
+#   existing HOMEBREW_TAP_TOKEN CI variable.
+#
+#   Then I change the cask's repository: to that GitLab owner/name (and it uses the GitLab client automatically).
+#
+#   The fallback, if you insist on keeping the GitHub tap without Pro: set the cask to skip_upload: true so GoReleaser only generates the
+#   oinit.rb, and add a small CI step that git pushes that file to the GitHub tap using HOMEBREW_TAP_TOKEN. Works, but it's custom glue
+#   and keeps a GitHub dependency — the opposite of your goal.
+#
+#   Tell me the GitLab tap project path you want (I'd suggest m-team/oidc/ssh/homebrew-oinit), create it + the token, and I'll switch the
+#   .goreleaser.yaml repository: over. Which way do you want to go?
