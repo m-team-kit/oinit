@@ -173,14 +173,16 @@ homebrew:
     - export GITLAB_TOKEN="$CI_JOB_TOKEN"
   script:
     - |
-      [[ "$CI_COMMIT_REF_NAME" == "${PREREL_BRANCH_NAME}" ]] && {
-          echo "Running set-prerel-version"
-          .gitlab-ci-scripts/set-prerel-version.sh
-      }
-      [[ "$CI_COMMIT_REF_NAME" != "${PREREL_BRANCH_NAME}" ]] && {
-          [[ "$CI_COMMIT_REF_NAME" != "${CI_DEFAULT_BRANCH}" ]] && {
-              echo "Running set-devel-version"
-              .gitlab-ci-scripts/set-prerel-version.sh --devstring dev
-          }
-      }
+      # goreleaser creates a GitLab Release whose *target* is the tagged commit,
+      # so that commit must already exist on the server. set-prerel-version.sh
+      # makes a NEW local commit (a VERSION bump) and tags that, which GitLab has
+      # never seen -> the release POST fails with "Target <sha> is invalid".
+      # So for non-default branches, synthesise a prerelease version and tag the
+      # current, already-pushed HEAD. On the default branch the real release tag
+      # is expected to be present already.
+      if [ "$CI_COMMIT_REF_NAME" != "$CI_DEFAULT_BRANCH" ]; then
+          DEV_VERSION="$(cat VERSION)-dev$(date +%y%m%d%H%M%S)"
+          echo "Tagging HEAD as v${DEV_VERSION}"
+          git tag "v${DEV_VERSION}"
+      fi
       goreleaser release --clean --skip docker
