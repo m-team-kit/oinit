@@ -1,4 +1,12 @@
 version: 2
+
+# Generate the roff man pages (and gzipped copies) before builds/packaging, so
+# the nfpm packages and the archive/Homebrew cask can pick them up. Same script
+# as `make man`; only needs go, sed and gzip.
+before:
+  hooks:
+    - ./scripts/gen-manpages.sh
+
 release:
   draft: true
   prerelease: auto
@@ -74,6 +82,12 @@ builds:
 archives:
   - id: bundle
     formats: ["tar.gz"]
+    # Bundle the client man pages so the Homebrew cask (which sources from this
+    # archive) can install them. Server man pages ship only in the Linux nfpm
+    # packages, below.
+    files:
+      - man/oinit.1
+      - man/oinit_hosts.5
     name_template: >-
       {{ .ProjectName }}_
       {{- title .Os }}_
@@ -111,6 +125,10 @@ nfpms:
     contents:
       - src: copyright
         dst: /usr/share/doc/{{ .PackageName }}/copyright
+      - src: man/oinit.1.gz
+        dst: /usr/share/man/man1/oinit.1.gz
+      - src: man/oinit_hosts.5.gz
+        dst: /usr/share/man/man5/oinit_hosts.5.gz
     section: misc
     formats:
       - apk
@@ -175,6 +193,10 @@ nfpms:
         dst: /usr/lib/systemd/system/oinit-ca.service
       - src: configs/nginx.oinit-ca.conf
         dst: /etc/nginx/location.d/nginx.oinit-ca.conf
+      - src: man/oinit-ca.8.gz
+        dst: /usr/share/man/man8/oinit-ca.8.gz
+      - src: man/oinit-ca-config.5.gz
+        dst: /usr/share/man/man5/oinit-ca-config.5.gz
     scripts:
       postinstall: "scripts/oinit-ca-postinstall.sh"
       preremove: "scripts/oinit-ca-preremove.sh"
@@ -205,6 +227,12 @@ nfpms:
         type: config
       - dst: /var/oinit-shell
         type: dir
+      - src: man/oinit-shell.8.gz
+        dst: /usr/share/man/man8/oinit-shell.8.gz
+      - src: man/oinit-switch.8.gz
+        dst: /usr/share/man/man8/oinit-switch.8.gz
+      - src: man/oinit-switch.conf.5.gz
+        dst: /usr/share/man/man5/oinit-switch.conf.5.gz
     section: misc
     formats:
       - apk
@@ -262,6 +290,10 @@ homebrew_casks:
       - bundle
     binaries:
       - oinit
+    # Client man pages, installed from the archive by the generated cask.
+    manpages:
+      - man/oinit.1
+      - man/oinit_hosts.5
     # Download URL for the archive: the GitLab generic Package Registry of this
     # project (populated by the GitLab release above). This keeps the binary
     # distribution on codebase.helmholtz.cloud. CI_API_V4_URL and CI_PROJECT_ID

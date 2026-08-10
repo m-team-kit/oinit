@@ -7,3 +7,9 @@ results/
 CLAUDE.md
 AGENTS.md
 oinit.exe
+
+# Generated man pages (sources are man/*.md, kept in git)
+man/*.1
+man/*.5
+man/*.8
+man/*.gz
