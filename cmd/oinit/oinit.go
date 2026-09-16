@@ -182,7 +182,7 @@ func handleCommandAdd(args []string) {
 	// Try to contact CA, which returns the host CA public key to be added
 	// to the user's known_hosts file.
 	if res, err := liboinitca.NewClient(ca).GetHost(host); err != nil {
-		log.LogError("Error contactng the CA: " + err.Error())
+		log.LogError("Error contacting the CA: " + err.Error())
 		return
 	} else {
 		// Confirm the CA host key before trusting it as a @cert-authority.
@@ -635,7 +635,7 @@ func handleCommandMatch(args []string) {
 	log.LogDebugTTY("Generating private ssh-cert-key")
 	pubkey, privkey, err := generateEd25519Keys()
 	if err != nil {
-		log.LogFatalTTY("There was an error generating a temporary key pair.")
+		log.LogFatalTTY("There was an error generating a temporary key pair: " + err.Error())
 	}
 
 	res, err := caClient.PostHostCertificate(host, pubkey, token, issuer)
@@ -653,7 +653,7 @@ func handleCommandMatch(args []string) {
 
 	certPk, _, _, _, err := ssh.ParseAuthorizedKey([]byte(res.Certificate))
 	if err != nil {
-		log.LogFatalTTY("Cannot parse certificate.")
+		log.LogFatalTTY("Cannot parse certificate returned by the CA: " + err.Error())
 	}
 
 	cert := certPk.(*ssh.Certificate)
@@ -661,7 +661,7 @@ func handleCommandMatch(args []string) {
 	log.LogDebugTTY(fmt.Sprintf("Received a certificate which is valid until %s", validUntil))
 
 	if useAgent {
-		if sshAgent.Add(agent.AddedKey{
+		if err := sshAgent.Add(agent.AddedKey{
 			PrivateKey:   privkey,
 			Certificate:  cert,
 			LifetimeSecs: uint32(time.Until(validUntil).Seconds()),
@@ -669,8 +669,8 @@ func handleCommandMatch(args []string) {
 			// this host in the agent (and remove it on 'oinit del'); the CA's
 			// KeyId is the audit identity and does not encode the host.
 			Comment: sshutil.AgentCertComment(host),
-		}) != nil {
-			log.LogFatalTTY("Cannot add private key and certificate to ssh-agent.")
+		}); err != nil {
+			log.LogFatalTTY("Cannot add private key and certificate to ssh-agent: " + err.Error())
 		} else {
 			// log.LogSuccessTTY(fmt.Sprintf("Received a certificate which is valid until %s", validUntil))
 			log.LogDebugTTY("Certificate stored in ssh-agent")

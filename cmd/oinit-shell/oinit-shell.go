@@ -13,7 +13,6 @@ const (
 	FORCE_COMMAND = "oinit-switch"
 
 	ERR_PROHIBITED = "This user does not provide interactive access."
-	ERR_INTERNAL   = "An error occurred."
 
 	// SAFE_PATH replaces any inherited/forwarded PATH before handing off to
 	// oinit-switch, so no executable is resolved via an attacker-controlled
@@ -47,11 +46,11 @@ func main() {
 	// PATH cannot substitute an attacker binary run as the oinit user.
 	self, err := os.Executable()
 	if err != nil {
-		log.LogFatal(ERR_INTERNAL)
+		log.LogFatal("Could not determine own executable path: " + err.Error())
 	}
 	path := filepath.Join(filepath.Dir(self), FORCE_COMMAND)
 	if info, err := os.Stat(path); err != nil || info.IsDir() {
-		log.LogFatal(ERR_INTERNAL)
+		log.LogFatal(FORCE_COMMAND + " not found next to oinit-shell at " + path + "; is oinit installed correctly?")
 	}
 
 	// Do not let a forwarded/inherited PATH influence what oinit-switch (or the
@@ -59,6 +58,6 @@ func main() {
 	os.Setenv("PATH", SAFE_PATH)
 
 	if err := syscall.Exec(path, argv, os.Environ()); err != nil {
-		log.LogFatal(ERR_INTERNAL)
+		log.LogFatal("Could not execute " + path + ": " + err.Error())
 	}
 }

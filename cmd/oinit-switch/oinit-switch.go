@@ -416,6 +416,7 @@ func main() {
 	os.Setenv("PATH", SAFE_PATH)
 
 	if len(os.Args) < 2 {
+		logf("no certificate principals passed as arguments")
 		fatalf(ERR_NOT_ALLOWED)
 	}
 
@@ -467,6 +468,7 @@ func main() {
 	}
 
 	if curUid != oinitUid {
+		logf(fmt.Sprintf("invoked as uid %d, expected the %q service user (uid %d)", curUid, OINIT_USER, oinitUid))
 		fatalf(ERR_NOT_ALLOWED)
 	}
 
@@ -489,6 +491,7 @@ func main() {
 	}
 
 	if target == "" {
+		logf(fmt.Sprintf("no allowed switch target among principals: %v", allowedUsers))
 		fatalf(ERR_NOT_ALLOWED)
 	}
 
@@ -536,6 +539,7 @@ func main() {
 		// this program does not run ssh command when a tty is present.
 
 		if isatty.IsTerminal(os.Stdout.Fd()) || isatty.IsCygwinTerminal(os.Stdout.Fd()) {
+			logf(fmt.Sprintf("refusing SSH_ORIGINAL_COMMAND %q: a tty was requested alongside a forced command", sshCmd))
 			fatalf(ERR_NOT_ALLOWED)
 		}
 
