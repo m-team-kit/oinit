@@ -12,7 +12,8 @@ import (
 const (
 	FORCE_COMMAND = "oinit-switch"
 
-	ERR_PROHIBITED = "This user does not provide interactive access."
+	ERR_NO_COMMAND    = "This account does not provide interactive shell access."
+	ERR_WRONG_COMMAND = "This account may only execute '" + FORCE_COMMAND + "'."
 
 	// SAFE_PATH replaces any inherited/forwarded PATH before handing off to
 	// oinit-switch, so no executable is resolved via an attacker-controlled
@@ -28,7 +29,7 @@ const (
 // provided.
 func main() {
 	if len(os.Args) != 3 || os.Args[1] != "-c" {
-		log.LogFatal(ERR_PROHIBITED)
+		log.LogFatal(ERR_NO_COMMAND)
 	}
 
 	command := os.Args[2]
@@ -38,7 +39,7 @@ func main() {
 	// on the whole command string would also accept look-alikes such as
 	// "oinit-switch-evil".
 	if len(argv) < 2 || argv[0] != FORCE_COMMAND {
-		log.LogFatal(ERR_PROHIBITED)
+		log.LogFatal(ERR_WRONG_COMMAND + " (got: " + command + ")")
 	}
 
 	// Resolve oinit-switch to an absolute path next to this binary (they are
