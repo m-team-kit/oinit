@@ -646,7 +646,7 @@ func PostHostCertificate(c *gin.Context) {
 
 	signer, err := ssh.NewSignerFromKey(info.UserCAPrivateKey)
 	if err != nil || cert.SignCert(rand.Reader, signer) != nil {
-		Error(c, http.StatusUnauthorized, ERR_INTERNAL_ERROR)
+		Error(c, http.StatusInternalServerError, ERR_INTERNAL_ERROR)
 		return
 	}
 

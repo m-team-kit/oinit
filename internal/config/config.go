@@ -8,7 +8,6 @@ import (
 	"strings"
 
 	"github.com/lbrocke/oinit/internal/util"
-	"github.com/lbrocke/oinit/pkg/log"
 
 	"golang.org/x/crypto/ssh"
 	"gopkg.in/ini.v1"
@@ -220,51 +219,60 @@ func Load(path string) (Config, error) {
 	// Set global listen address from default options
 	conf.ListenAddress = defOptions.ListenAddress
 
-	if loadKeys(&conf) != nil {
-		return conf, errors.New("could not open and parse keys")
+	if err := loadKeys(&conf); err != nil {
+		return conf, fmt.Errorf("could not load keys: %w", err)
 	}
 
-	if parseCertValidity(&conf) != nil {
-		return conf, errors.New("could not parse certificate validities")
+	if err := parseCertValidity(&conf); err != nil {
+		return conf, fmt.Errorf("could not parse certificate validity: %w", err)
 	}
 
 	return conf, nil
 }
 
+// labelledPath names a config option (its ini key, for error messages) and the
+// path it currently holds.
+type labelledPath struct {
+	option string
+	path   string
+}
+
 func loadKeys(conf *Config) error {
 	var uniqPubKeys = make(map[string]ssh.PublicKey)
 	var uniqPrivKeys = make(map[string]interface{})
-	// log.LogTTY("loading keys")
 
 	for i, group := range conf.HostGroups {
-		// log.LogTTY(fmt.Sprintf("loading keys: %d %s", i, group))
-
-		for _, path := range []string{group.PathHostCAPublicKey, group.PathUserCAPublicKey} {
-			// log.LogTTY("->" + path)
-			if _, ok := uniqPubKeys[path]; ok {
+		pubKeys := []labelledPath{
+			{"host-ca-pubkey", group.PathHostCAPublicKey},
+			{"user-ca-pubkey", group.PathUserCAPublicKey},
+		}
+		for _, lp := range pubKeys {
+			if _, ok := uniqPubKeys[lp.path]; ok {
 				continue
 			}
 
-			pk, err := parsePublicKeyFile(path)
+			pk, err := parsePublicKeyFile(lp.path)
 			if err != nil {
-				log.LogErrorTTY(fmt.Sprintf("Error: %s", err))
-				return err
+				return fmt.Errorf("hostgroup %q: %s (%s): %w", group.Name, lp.option, lp.path, err)
 			}
 
-			uniqPubKeys[path] = pk
+			uniqPubKeys[lp.path] = pk
 		}
 
-		for _, path := range []string{group.PathHostCAPrivateKey, group.PathUserCAPrivateKey} {
-			if _, ok := uniqPrivKeys[path]; ok {
+		privKeys := []labelledPath{
+			{"host-ca-privkey", group.PathHostCAPrivateKey},
+			{"user-ca-privkey", group.PathUserCAPrivateKey},
+		}
+		for _, lp := range privKeys {
+			if _, ok := uniqPrivKeys[lp.path]; ok {
 				continue
 			}
 
-			pk, err := parsePrivateKeyFile(path)
+			pk, err := parsePrivateKeyFile(lp.path)
 			if err != nil {
-				log.LogErrorTTY(fmt.Sprintf("Error: %s", err))
-				return err
+				return fmt.Errorf("hostgroup %q: %s (%s): %w", group.Name, lp.option, lp.path, err)
 			}
-			uniqPrivKeys[path] = pk
+			uniqPrivKeys[lp.path] = pk
 		}
 
 		conf.HostGroups[i].Keys.HostCAPublicKey = uniqPubKeys[group.PathHostCAPublicKey]
@@ -287,7 +295,7 @@ func parseCertValidity(conf *Config) error {
 
 		dur, err := strconv.Atoi(validity)
 		if err != nil {
-			return err
+			return fmt.Errorf("hostgroup %q: cert-validity %q: %w", group.Name, validity, err)
 		}
 
 		conf.HostGroups[i].CertDuration = dur
