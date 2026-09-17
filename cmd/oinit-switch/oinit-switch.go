@@ -152,6 +152,12 @@ func logf(msg string) {
 	}
 }
 
+// fatalNotAllowed exits with the generic not-allowed message plus a short
+// reason, so users and support can trace which check refused the session.
+func fatalNotAllowed(reason string) {
+	fatalf(ERR_NOT_ALLOWED + " (" + reason + ")")
+}
+
 // fatalf logs a message to both the TTY and log file, removes any
 // forwarded socket, then exits.
 func fatalf(msg string) {
@@ -170,16 +176,16 @@ func fatalf(msg string) {
 // isAllowedTarget reports whether the certificate principal u may be used as a
 // su target for the current (oinit) user. It re-validates the principal name,
 // resolves the account, and applies classifyTarget. reason is a log message when
-// the principal is rejected for a noteworthy cause (invalid name, blocked system
-// user); it is empty when the principal is simply skipped (unknown account, or
-// it is the current user).
+// the principal is rejected for a noteworthy cause (invalid name, unknown
+// account, blocked system user); it is empty when the principal is simply
+// skipped because it is the current user.
 func isAllowedTarget(u string, curUid int, cfg switchConfig) (bool, string) {
 	if !isValidUsername(u) {
 		return false, "not a valid username"
 	}
 	uid, err := getUid(u)
 	if err != nil {
-		return false, ""
+		return false, "no such user on this host"
 	}
 	return classifyTarget(u, uid, curUid, cfg)
 }
@@ -416,8 +422,7 @@ func main() {
 	os.Setenv("PATH", SAFE_PATH)
 
 	if len(os.Args) < 2 {
-		logf("no certificate principals passed as arguments")
-		fatalf(ERR_NOT_ALLOWED)
+		fatalNotAllowed("no target user was given; the certificate contained no principals")
 	}
 
 	// Arguments are the allowed users (certificate principals).
@@ -468,8 +473,7 @@ func main() {
 	}
 
 	if curUid != oinitUid {
-		logf(fmt.Sprintf("invoked as uid %d, expected the %q service user (uid %d)", curUid, OINIT_USER, oinitUid))
-		fatalf(ERR_NOT_ALLOWED)
+		fatalNotAllowed("oinit-switch must be invoked as the '" + OINIT_USER + "' service user, not as '" + curUser.Username + "'")
 	}
 
 	// Find the first allowed user that is a different, permitted account and
@@ -491,8 +495,7 @@ func main() {
 	}
 
 	if target == "" {
-		logf(fmt.Sprintf("no allowed switch target among principals: %v", allowedUsers))
-		fatalf(ERR_NOT_ALLOWED)
+		fatalNotAllowed("none of the certificate principals is a permitted login target on this host; see messages above")
 	}
 
 	// Chown the forwarded socket to the target user (requires CAP_CHOWN).
@@ -539,8 +542,7 @@ func main() {
 		// this program does not run ssh command when a tty is present.
 
 		if isatty.IsTerminal(os.Stdout.Fd()) || isatty.IsCygwinTerminal(os.Stdout.Fd()) {
-			logf(fmt.Sprintf("refusing SSH_ORIGINAL_COMMAND %q: a tty was requested alongside a forced command", sshCmd))
-			fatalf(ERR_NOT_ALLOWED)
+			fatalNotAllowed("running a remote command with a forced TTY (e.g. ssh -tt) is not permitted")
 		}
 
 		if socketPath != "" {
