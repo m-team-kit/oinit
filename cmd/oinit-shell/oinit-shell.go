@@ -12,14 +12,19 @@ import (
 const (
 	FORCE_COMMAND = "oinit-switch"
 
-	ERR_NO_COMMAND    = "This account does not provide interactive shell access."
-	ERR_WRONG_COMMAND = "This account may only execute '" + FORCE_COMMAND + "'."
+	ERR_PROHIBITED = "This user does not provide interactive access."
 
 	// SAFE_PATH replaces any inherited/forwarded PATH before handing off to
 	// oinit-switch, so no executable is resolved via an attacker-controlled
 	// search path.
 	SAFE_PATH = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 )
+
+// fatalProhibited exits with the generic prohibited message plus a short
+// reason, so users and support can trace which check refused the session.
+func fatalProhibited(reason string) {
+	log.LogFatal(ERR_PROHIBITED + " (" + reason + ")")
+}
 
 // This program will be invoked by OpenSSH as
 //
@@ -29,7 +34,7 @@ const (
 // provided.
 func main() {
 	if len(os.Args) != 3 || os.Args[1] != "-c" {
-		log.LogFatal(ERR_NO_COMMAND)
+		fatalProhibited("no forced command was given; interactive login is not permitted")
 	}
 
 	command := os.Args[2]
@@ -39,7 +44,7 @@ func main() {
 	// on the whole command string would also accept look-alikes such as
 	// "oinit-switch-evil".
 	if len(argv) < 2 || argv[0] != FORCE_COMMAND {
-		log.LogFatal(ERR_WRONG_COMMAND + " (got: " + command + ")")
+		fatalProhibited("only '" + FORCE_COMMAND + "' may be executed, got: " + command)
 	}
 
 	// Resolve oinit-switch to an absolute path next to this binary (they are
